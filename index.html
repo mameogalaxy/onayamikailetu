@@ -312,10 +312,12 @@
     mode: 'tied', air: 1,
     vel: new THREE.Vector3(),
     thrustDir: new THREE.Vector3(0, -1, 0),
+    omega: new THREE.Vector3(),            // angular velocity that swings the thrust around
   };
   function resetBalloon() {
     balloonState.mode = 'tied'; balloonState.air = 1;
     balloonState.vel.set(0, 0, 0); balloonState.thrustDir.set(0, -1, 0);
+    balloonState.omega.set(0, 0, 0);
     balloon.position.copy(TIED_POS);
     balloon.quaternion.identity();
     balloon.scale.setScalar(1);
@@ -396,9 +398,10 @@
     if (balloonState.mode === 'tied') {
       balloonState.mode = 'flying';
       balloonState.air = 1;
-      const a = Math.random() * Math.PI * 2;
-      balloonState.vel.set(Math.cos(a) * 4, 6 + Math.random()*3, Math.sin(a) * 4);
-      balloonState.thrustDir.set(Math.random()-0.5, -1, Math.random()-0.5).normalize();
+      balloonState.vel.set((Math.random()-0.5)*8, 4 + Math.random()*4, (Math.random()-0.5)*10);
+      balloonState.thrustDir.set(Math.random()-0.5, Math.random()-0.5, Math.random()-0.5).normalize();
+      balloonState.omega.set(Math.random()-0.5, Math.random()-0.5, Math.random()-0.5)
+                         .multiplyScalar(7 + Math.random()*4);
     } else {
       resetBalloon();
     }
@@ -407,10 +410,14 @@
   // ───────────────────────────────────────────────────────────
   //  Balloon flight physics (erratic deflating-balloon motion)
   // ───────────────────────────────────────────────────────────
-  const BOUNDS = { x: 2.3, y: 8.5, z: 2.3, floor: 2.2 };
+  const BOUNDS = { x: 2.4, y: 8.5, z: 4.5, floor: 2.2 };   // wide in Z → flies toward/away (depth)
   const _q = new THREE.Quaternion();
+  const _pq = new THREE.Quaternion();
   const _idq = new THREE.Quaternion();
   const _down = new THREE.Vector3(0, -1, 0);
+  const _axis = new THREE.Vector3();
+  const _vd = new THREE.Vector3();
+  const _back = new THREE.Vector3();
   const nozzleWorld = new THREE.Vector3();
 
   function updateBalloon(dt, t) {
@@ -427,43 +434,61 @@
     }
 
     if (s.mode === 'flying') {
-      const burst = 0.10 + Math.random() * 0.12;
+      const burst = 0.05 + Math.random() * 0.07;            // drains slower → longer show
       s.air = Math.max(0, s.air - burst * dt);
 
-      s.thrustDir.x += (Math.random() - 0.5) * 9 * dt;
-      s.thrustDir.y += (Math.random() - 0.5) * 9 * dt;
-      s.thrustDir.z += (Math.random() - 0.5) * 9 * dt;
-      s.thrustDir.normalize();
+      // Swing the thrust direction smoothly (precession) → looping "ぐるぐるん"
+      // paths, with the occasional sharp swerve → darting "右往左往".
+      s.omega.x += (Math.random() - 0.5) * 7 * dt;
+      s.omega.y += (Math.random() - 0.5) * 7 * dt;
+      s.omega.z += (Math.random() - 0.5) * 7 * dt;
+      if (Math.random() < dt * 1.1) {                       // ~once a second: swerve hard
+        s.omega.set(Math.random()-0.5, Math.random()-0.5, Math.random()-0.5)
+                .multiplyScalar(7 + Math.random() * 7);
+      }
+      let om = s.omega.length();
+      if (om > 11) { s.omega.multiplyScalar(11 / om); om = 11; }       // keep loops tight
+      else if (om < 4 && om > 1e-4) { s.omega.multiplyScalar(4 / om); om = 4; }
+      _axis.copy(s.omega).multiplyScalar(1 / om);
+      _pq.setFromAxisAngle(_axis, om * dt);
+      s.thrustDir.applyQuaternion(_pq).normalize();
 
-      const power = 46 * (0.25 + s.air) * (0.6 + Math.random() * 0.8);
-      s.vel.addScaledVector(s.thrustDir, -power * dt);
-
-      s.vel.y -= 6.5 * dt;
-      s.vel.multiplyScalar(0.985);
-      const sp = s.vel.length(), MAX = 26;
+      // fairly steady thrust so each loop keeps a coherent radius
+      const power = 34 * (0.35 + s.air) * (0.85 + Math.random() * 0.3);
+      s.vel.addScaledVector(s.thrustDir, power * dt);
+      s.vel.y -= 3.5 * dt;                                  // light gravity
+      s.vel.multiplyScalar(0.99);
+      const sp = s.vel.length(), MAX = 22;
       if (sp > MAX) s.vel.multiplyScalar(MAX / sp);
 
       balloon.position.addScaledVector(s.vel, dt);
 
+      // bounce off the invisible box; each hit kicks a fresh swerve
       const p = balloon.position;
-      const jitter = () => { s.vel.x += (Math.random()-0.5)*4; s.vel.z += (Math.random()-0.5)*4; };
+      const swerve = () => s.omega.set(Math.random()-0.5, Math.random()-0.5, Math.random()-0.5)
+                                  .multiplyScalar(8 + Math.random()*6);
       const bounce = (axis, limit) => {
-        if (p[axis] > limit)  { p[axis] = limit;  s.vel[axis] = -Math.abs(s.vel[axis]) * 0.7; jitter(); }
-        if (p[axis] < -limit) { p[axis] = -limit; s.vel[axis] =  Math.abs(s.vel[axis]) * 0.7; jitter(); }
+        if (p[axis] >  limit) { p[axis] =  limit; s.vel[axis] = -Math.abs(s.vel[axis])*0.85; swerve(); }
+        if (p[axis] < -limit) { p[axis] = -limit; s.vel[axis] =  Math.abs(s.vel[axis])*0.85; swerve(); }
       };
       bounce('x', BOUNDS.x); bounce('z', BOUNDS.z);
-      if (p.y > BOUNDS.y) { p.y = BOUNDS.y; s.vel.y = -Math.abs(s.vel.y)*0.7; }
-      if (p.y < BOUNDS.floor) { p.y = BOUNDS.floor; s.vel.y = Math.abs(s.vel.y)*0.6; jitter(); }
+      if (p.y > BOUNDS.y)     { p.y = BOUNDS.y;     s.vel.y = -Math.abs(s.vel.y)*0.85; swerve(); }
+      if (p.y < BOUNDS.floor) { p.y = BOUNDS.floor; s.vel.y =  Math.abs(s.vel.y)*0.9;  swerve(); }
 
       const sc = 0.5 + 0.5 * s.air;
       balloon.scale.set(sc * (1 + Math.sin(t*40)*0.05), sc * (1 - Math.sin(t*40)*0.05), sc);
 
-      _q.setFromUnitVectors(_down, s.thrustDir);
-      balloon.quaternion.slerp(_q, 0.3);
-
-      nozzle.getWorldPosition(nozzleWorld);
-      const n = 3 + (Math.random() * 4 | 0);
-      for (let k = 0; k < n; k++) spawnParticle(nozzleWorld, s.thrustDir);
+      // aim the balloon along its flight path (nozzle trailing) so it tumbles
+      // through every loop; spray the escaping air out the back.
+      if (sp > 0.001) {
+        _vd.copy(s.vel).multiplyScalar(1 / sp);
+        _back.copy(_vd).multiplyScalar(-1);
+        _q.setFromUnitVectors(_down, _back);
+        balloon.quaternion.slerp(_q, 0.25);
+        nozzle.getWorldPosition(nozzleWorld);
+        const n = 3 + (Math.random() * 4 | 0);
+        for (let k = 0; k < n; k++) spawnParticle(nozzleWorld, _back);
+      }
 
       if (s.air <= 0.001) s.mode = 'reinflate';   // out of air → come back & re-inflate
       return;
