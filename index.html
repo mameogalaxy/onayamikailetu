@@ -45,8 +45,8 @@
   <div id="app"></div>
   <div id="hud">
     <h1>🎈 BalloonClock 3D</h1>
-    <p>赤いボタンを <b>タップ</b> すると風船の空気が抜けて暴れ回ります。<br>
-       1本指ドラッグで回転 / ピンチでズーム / もう一度タップで再セット。</p>
+    <p>この<b>デジタル時計じたいが風船</b>。赤いボタンを <b>タップ</b> すると<br>
+       時計がしぼんで暴れ回ります。ドラッグで回転 / ピンチでズーム / もう一度タップで再セット。</p>
   </div>
   <div id="state">READY</div>
   <div id="hint">▼ 赤いボタンをタップ！</div>
@@ -84,7 +84,7 @@
   const controls = new THREE.OrbitControls(camera, renderer.domElement);
   controls.enableDamping = true;
   controls.dampingFactor = 0.08;
-  controls.target.set(0, 3, 0);
+  controls.target.set(0, 4, 0);
   controls.minDistance = 6;
   controls.maxDistance = 30;
   controls.maxPolarAngle = Math.PI * 0.495;
@@ -212,22 +212,6 @@
     clockTex.needsUpdate = true;
   }
 
-  const clockGroup = new THREE.Group();
-  const frame = new THREE.Mesh(
-    new THREE.BoxGeometry(6.6, 2.3, 0.35),
-    new THREE.MeshStandardMaterial({ color: '#10141f', roughness: 0.5, metalness: 0.6 })
-  );
-  frame.castShadow = true;
-  clockGroup.add(frame);
-  const screen = new THREE.Mesh(
-    new THREE.PlaneGeometry(6.0, 1.85),
-    new THREE.MeshBasicMaterial({ map: clockTex })
-  );
-  screen.position.z = 0.19;
-  clockGroup.add(screen);
-  clockGroup.position.set(0, 6.2, 0);
-  scene.add(clockGroup);
-
   // ───────────────────────────────────────────────────────────
   //  Push button (tappable)
   // ───────────────────────────────────────────────────────────
@@ -258,29 +242,47 @@
   // ───────────────────────────────────────────────────────────
   //  Balloon
   // ───────────────────────────────────────────────────────────
+  // The balloon IS the digital clock: a glossy inflated body with the
+  // 7-seg time screen on its belly, a nozzle, and a highlight.
   const balloon = new THREE.Group();
   const balloonMat = new THREE.MeshStandardMaterial({
-    color: '#ff4d6d', roughness: 0.18, metalness: 0.0,
+    color: '#ff4d6d', roughness: 0.16, metalness: 0.0,
     emissive: '#3a0010', emissiveIntensity: 0.25
   });
-  const body = new THREE.Mesh(new THREE.SphereGeometry(1, 40, 32), balloonMat);
-  body.scale.set(1, 1.18, 1); body.castShadow = true;
+  const R = 1.7;
+  const body = new THREE.Mesh(new THREE.SphereGeometry(R, 48, 36), balloonMat);
+  body.scale.set(1, 1.12, 1); body.castShadow = true;
   balloon.add(body);
+
+  // digital clock screen mounted on the balloon's belly (front, +z)
+  const bezel = new THREE.Mesh(
+    new THREE.PlaneGeometry(2.95, 1.02),
+    new THREE.MeshStandardMaterial({ color: '#06121a', roughness: 0.5, metalness: 0.3 })
+  );
+  bezel.position.set(0, 0.05, R * 0.965);
+  balloon.add(bezel);
+  const screen = new THREE.Mesh(
+    new THREE.PlaneGeometry(2.7, 0.84),
+    new THREE.MeshBasicMaterial({ map: clockTex })
+  );
+  screen.position.set(0, 0.05, R * 0.975);
+  balloon.add(screen);
+
   const nozzle = new THREE.Mesh(
-    new THREE.ConeGeometry(0.22, 0.5, 16),
+    new THREE.ConeGeometry(0.34, 0.7, 18),
     new THREE.MeshStandardMaterial({ color: '#d23355', roughness: 0.4 })
   );
-  nozzle.position.y = -1.25;
+  nozzle.position.y = -(R * 1.12) - 0.05;
   balloon.add(nozzle);
   const shine = new THREE.Mesh(
-    new THREE.SphereGeometry(0.28, 16, 16),
-    new THREE.MeshBasicMaterial({ color: '#ffd6dd', transparent: true, opacity: 0.55 })
+    new THREE.SphereGeometry(0.42, 16, 16),
+    new THREE.MeshBasicMaterial({ color: '#ffd6dd', transparent: true, opacity: 0.5 })
   );
-  shine.position.set(-0.35, 0.5, 0.78);
+  shine.position.set(-0.7, 0.95, 1.2);
   balloon.add(shine);
   scene.add(balloon);
 
-  const TIED_POS = new THREE.Vector3(2.2, 3.0, 0);
+  const TIED_POS = new THREE.Vector3(0, 4.2, 0);
   const balloonState = {
     mode: 'tied', air: 1,
     vel: new THREE.Vector3(),
@@ -467,9 +469,6 @@
     clockAcc += dt;
     if (clockAcc > 0.08) { renderClock(); clockAcc = 0; }
 
-    clockGroup.position.y = 6.2 + Math.sin(t * 0.8) * 0.12;
-    clockGroup.rotation.y = Math.sin(t * 0.35) * 0.12;
-
     if (pressAnim > 0) {
       pressAnim = Math.max(0, pressAnim - dt * 4);
       cap.position.y = buttonRestY - Math.sin((1 - pressAnim) * Math.PI) * 0.22;
@@ -484,7 +483,7 @@
       string.visible = true;
       const pts = string.geometry.attributes.position.array;
       pts[0] = buttonGroup.position.x; pts[1] = 1.0; pts[2] = buttonGroup.position.z;
-      pts[3] = balloon.position.x; pts[4] = balloon.position.y - 1.4; pts[5] = balloon.position.z;
+      pts[3] = balloon.position.x; pts[4] = balloon.position.y - 2.0; pts[5] = balloon.position.z;
       string.geometry.attributes.position.needsUpdate = true;
     } else {
       string.visible = false;
