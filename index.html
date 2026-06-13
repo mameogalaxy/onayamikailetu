@@ -2,8 +2,15 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
 <title>BalloonClock 3D — 風船デジタル時計</title>
+<meta name="theme-color" content="#0b1f44" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="BalloonClock" />
+<link rel="manifest" href="manifest.webmanifest" />
+<link rel="apple-touch-icon" href="icon-180.png" />
+<link rel="icon" type="image/png" href="icon-192.png" />
 <style>
   :root { color-scheme: dark; }
   * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -39,6 +46,52 @@
     font-family: system-ui, sans-serif; color: #ffd9df; background: #0a0d16;
     padding: 24px; text-align: center; font-size: 14px; line-height: 1.7;
   }
+  #weather {
+    position: fixed; right: 12px; top: 40px; z-index: 10;
+    font-family: system-ui, sans-serif; font-size: 12px; color: #eaf4ff;
+    background: rgba(10,20,35,.5); border: 1px solid rgba(120,200,255,.25);
+    padding: 6px 10px; border-radius: 8px; pointer-events: none; user-select: none;
+    text-shadow: 0 1px 4px rgba(0,0,0,.6);
+  }
+  #tools {
+    position: fixed; left: 14px; bottom: calc(16px + env(safe-area-inset-bottom)); z-index: 11;
+    display: flex; gap: 8px; font-family: system-ui, sans-serif;
+  }
+  .btn {
+    font-size: 13px; color: #eaf6ff; background: rgba(20,40,70,.72);
+    border: 1px solid rgba(120,200,255,.35); padding: 9px 14px; border-radius: 999px;
+    cursor: pointer; -webkit-tap-highlight-color: transparent; user-select: none;
+  }
+  .btn:active { background: rgba(40,70,110,.9); }
+  #alarmPanel {
+    position: fixed; left: 50%; bottom: 74px; transform: translateX(-50%); z-index: 12;
+    display: none; flex-direction: column; gap: 11px; width: min(86vw, 300px);
+    background: rgba(10,18,30,.93); border: 1px solid rgba(120,200,255,.3);
+    padding: 16px; border-radius: 14px; color: #eaf6ff; font-family: system-ui, sans-serif;
+    backdrop-filter: blur(6px);
+  }
+  #alarmPanel.open { display: flex; }
+  #alarmPanel input[type=time] {
+    font-size: 22px; padding: 8px 10px; border-radius: 8px;
+    border: 1px solid #2a4a6a; background: #0a1626; color: #dff3ff; width: 100%;
+  }
+  #alarmPanel label { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+  #alarmPanel .note { font-size: 11px; opacity: .65; line-height: 1.55; }
+  #ring {
+    position: fixed; inset: 0; z-index: 30; display: none; place-items: center;
+    background: rgba(120,10,30,.32); backdrop-filter: blur(2px);
+  }
+  #ring.open { display: grid; }
+  #ringCard {
+    background: #10141f; border: 2px solid #ff3b54; border-radius: 18px;
+    padding: 26px 30px; text-align: center; color: #fff; font-family: system-ui, sans-serif;
+    animation: ringPulse 1s infinite;
+  }
+  @keyframes ringPulse { 0%,100%{ transform: scale(1) } 50%{ transform: scale(1.06) } }
+  #flash {
+    position: fixed; inset: 0; z-index: 5; background: #eaf2ff; opacity: 0;
+    pointer-events: none; mix-blend-mode: screen;
+  }
 </style>
 </head>
 <body>
@@ -49,7 +102,27 @@
        時計がしぼんで暴れ回ります。ドラッグで回転 / ピンチでズーム / もう一度タップで再セット。</p>
   </div>
   <div id="state">READY</div>
+  <div id="weather">🛰 天気取得中…</div>
   <div id="hint">▼ 赤いボタンをタップ！</div>
+  <div id="flash"></div>
+
+  <div id="tools">
+    <button class="btn" id="alarmBtn">⏰ アラーム</button>
+    <button class="btn" id="weatherBtn">🌤 天気更新</button>
+  </div>
+  <div id="alarmPanel">
+    <div style="font-weight:700">⏰ アラーム設定</div>
+    <input type="time" id="alarmTime" />
+    <label><input type="checkbox" id="alarmOn" /> アラームを有効にする</label>
+    <div class="note">※ このアプリを開いている間だけ鳴ります。iOSは画面ロック中・バックグラウンドでは鳴りません。鳴ると風船が暴れます💥</div>
+    <button class="btn" id="alarmClose" style="align-self:flex-end">閉じる</button>
+  </div>
+  <div id="ring"><div id="ringCard">
+    <div style="font-size:40px">⏰</div>
+    <div style="font-size:20px;font-weight:700;margin:8px 0 14px">アラーム！</div>
+    <button class="btn" id="ringStop" style="background:#ff3b54;border-color:#ff7d90;font-size:15px;padding:10px 22px">停止する</button>
+  </div></div>
+
   <div id="err">Three.js の読み込みに失敗しました。<br>オンライン環境で開いてください。</div>
 
   <!-- Classic (UMD) Three.js + OrbitControls so it works everywhere incl. online preview -->
@@ -77,22 +150,29 @@
 
   const scene = new THREE.Scene();
 
-  // gradient sky + image-based lighting so the balloon has glossy reflections
+  // Sky gradient + image-based lighting, recolored to match the live weather.
   const skyCanvas = document.createElement('canvas');
   skyCanvas.width = 16; skyCanvas.height = 256;
   const sctx = skyCanvas.getContext('2d');
-  const grad = sctx.createLinearGradient(0, 0, 0, 256);
-  grad.addColorStop(0.00, '#0b1f44');
-  grad.addColorStop(0.45, '#173a6b');
-  grad.addColorStop(0.75, '#0e2138');
-  grad.addColorStop(1.00, '#070d18');
-  sctx.fillStyle = grad; sctx.fillRect(0, 0, 16, 256);
   const skyTex = new THREE.CanvasTexture(skyCanvas);
   skyTex.mapping = THREE.EquirectangularReflectionMapping;
   const pmrem = new THREE.PMREMGenerator(renderer);
-  scene.environment = pmrem.fromEquirectangular(skyTex).texture;
-  scene.background = skyTex;
-  scene.fog = new THREE.FogExp2('#0a1426', 0.015);
+  pmrem.compileEquirectangularShader();
+  scene.fog = new THREE.FogExp2('#0a1426', 0.012);
+  let _envRT = null;
+  function setSky(c0, c1, c2, c3, fogCol, fogDen) {
+    const g = sctx.createLinearGradient(0, 0, 0, 256);
+    g.addColorStop(0.00, c0); g.addColorStop(0.45, c1);
+    g.addColorStop(0.78, c2); g.addColorStop(1.00, c3);
+    sctx.fillStyle = g; sctx.fillRect(0, 0, 16, 256);
+    skyTex.needsUpdate = true;
+    if (_envRT) _envRT.dispose();
+    _envRT = pmrem.fromEquirectangular(skyTex);
+    scene.environment = _envRT.texture;
+    scene.background = skyTex;
+    scene.fog.color.set(fogCol); scene.fog.density = fogDen;
+  }
+  setSky('#0b1f44', '#173a6b', '#0e2138', '#070d18', '#0a1426', 0.012);
 
   const camera = new THREE.PerspectiveCamera(58, innerWidth / innerHeight, 0.1, 200);
   camera.position.set(0, 5, 16);
@@ -108,7 +188,8 @@
   // ───────────────────────────────────────────────────────────
   //  Lights
   // ───────────────────────────────────────────────────────────
-  scene.add(new THREE.HemisphereLight('#9fc7ff', '#1a1530', 0.7));
+  const hemi = new THREE.HemisphereLight('#9fc7ff', '#1a1530', 0.7);
+  scene.add(hemi);
 
   const key = new THREE.DirectionalLight('#ffffff', 2.1);
   key.position.set(6, 12, 8);
@@ -369,6 +450,231 @@
   }
 
   // ───────────────────────────────────────────────────────────
+  //  Weather sky: sun / moon / stars / clouds / rain / snow / lightning
+  // ───────────────────────────────────────────────────────────
+  function radialTex(inner, outer) {
+    const c = document.createElement('canvas'); c.width = c.height = 128;
+    const x = c.getContext('2d');
+    const g = x.createRadialGradient(64, 64, 0, 64, 64, 64);
+    g.addColorStop(0, inner); g.addColorStop(1, outer);
+    x.fillStyle = g; x.fillRect(0, 0, 128, 128);
+    return new THREE.CanvasTexture(c);
+  }
+
+  const sun = new THREE.Group();
+  sun.add(new THREE.Mesh(new THREE.SphereGeometry(1.7, 24, 24),
+    new THREE.MeshBasicMaterial({ color: '#fff3c0' })));
+  const sunGlow = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: radialTex('rgba(255,240,180,0.9)', 'rgba(255,200,90,0)'),
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
+  sunGlow.scale.set(16, 16, 1); sun.add(sunGlow);
+  sun.position.set(10, 15, -14); scene.add(sun);
+
+  const moon = new THREE.Mesh(new THREE.SphereGeometry(1.4, 24, 24),
+    new THREE.MeshStandardMaterial({ color: '#dfe6f0', emissive: '#9fb0c8', emissiveIntensity: 0.7, roughness: 1 }));
+  moon.position.set(10, 15, -14); scene.add(moon);
+
+  const starN = 320, starPos = new Float32Array(starN * 3);
+  for (let i = 0; i < starN; i++) {
+    starPos[i*3]   = (Math.random()-0.5) * 90;
+    starPos[i*3+1] = 5 + Math.random() * 34;
+    starPos[i*3+2] = -8 - Math.random() * 46;
+  }
+  const starGeo = new THREE.BufferGeometry();
+  starGeo.setAttribute('position', new THREE.BufferAttribute(starPos, 3));
+  const stars = new THREE.Points(starGeo, new THREE.PointsMaterial({
+    color: '#ffffff', size: 0.4, sizeAttenuation: true, transparent: true, opacity: 0.9,
+    depthWrite: false, blending: THREE.AdditiveBlending }));
+  stars.frustumCulled = false; scene.add(stars);
+
+  const clouds = new THREE.Group();
+  for (let i = 0; i < 7; i++) {
+    const cl = new THREE.Group();
+    const cm = new THREE.MeshStandardMaterial({ color: '#c8d2dc', roughness: 1, transparent: true, opacity: 0.92 });
+    for (let j = 0; j < 5; j++) {
+      const puff = new THREE.Mesh(new THREE.SphereGeometry(1.4 + Math.random() * 1.1, 16, 12), cm);
+      puff.position.set((Math.random()-0.5) * 5, (Math.random()-0.5) * 0.8, (Math.random()-0.5) * 2.2);
+      puff.scale.y = 0.55; cl.add(puff);
+    }
+    cl.position.set((Math.random()-0.5) * 46, 9.5 + Math.random() * 6, -12 - Math.random() * 18);
+    cl.userData.spd = 0.4 + Math.random() * 0.5; clouds.add(cl);
+  }
+  scene.add(clouds);
+
+  // precipitation pool (reused for rain OR snow)
+  const PRN = 520, prPos = new Float32Array(PRN * 3), prV = new Float32Array(PRN);
+  for (let i = 0; i < PRN; i++) {
+    prPos[i*3]   = (Math.random()-0.5) * 30;
+    prPos[i*3+1] = Math.random() * 24;
+    prPos[i*3+2] = -14 + Math.random() * 22;
+    prV[i] = 14 + Math.random() * 12;
+  }
+  const prGeo = new THREE.BufferGeometry();
+  prGeo.setAttribute('position', new THREE.BufferAttribute(prPos, 3));
+  const prMat = new THREE.PointsMaterial({ color: '#bcd6f2', size: 0.12, transparent: true,
+    opacity: 0.8, depthWrite: false });
+  const precip = new THREE.Points(prGeo, prMat); precip.frustumCulled = false; scene.add(precip);
+  let precipMode = 'none';
+
+  const flashEl = document.getElementById('flash');
+  const weatherEl = document.getElementById('weather');
+  let weatherCat = 'clear', flash = 0;
+
+  // weather palettes:  [top, mid, low, horizon], keyColor, keyI, hemiI, fogCol, fogDen
+  const JP = { clear:'快晴', cloudy:'晴れ時々くもり', overcast:'くもり', fog:'霧', rain:'雨', snow:'雪', thunder:'雷雨' };
+  function pickPalette(cat, day) {
+    const P = {
+      clear:    day ? [['#2f6fd8','#5f9bef','#a9cdf6','#d9ebff'],'#fff4e0',2.4,0.95,'#bcd6f2',0.006]
+                    : [['#05081a','#0a1738','#10244a','#152a52'],'#aec4ff',0.5,0.35,'#0a1426',0.012],
+      cloudy:   day ? [['#5e7da6','#89a6c6','#b9cbdd','#dde7ef'],'#f0f2f5',1.5,0.85,'#c4d2e0',0.01]
+                    : [['#0d1422','#18233a','#243150','#2c3a5c'],'#9fb0cf',0.55,0.4,'#141d2e',0.013],
+      overcast: day ? [['#6c7682','#929ba6','#b3bcc4','#cdd4da'],'#dfe3e8',1.1,0.9,'#c2c9cf',0.014]
+                    : [['#11151c','#1c232c','#283039','#333c45'],'#9aa6b2',0.5,0.5,'#1a222b',0.016],
+      fog:      day ? [['#8a96a2','#a6b1bb','#c0c8ce','#d7dde1'],'#e6ebef',1.0,0.95,'#c6ccd1',0.05]
+                    : [['#14181e','#20262d','#2b333b','#363f48'],'#9aa6b2',0.5,0.55,'#222a31',0.055],
+      rain:     day ? [['#39434f','#525d6a','#6f7b88','#8893a0'],'#aeb8c4',0.9,0.75,'#5a6672',0.02]
+                    : [['#0c1018','#161d27','#222b37','#2d3744'],'#8a97a8',0.5,0.45,'#141a22',0.02],
+      snow:     day ? [['#5d6e84','#8496ad','#aebfd2','#e3ecf5'],'#eaf2fb',1.3,0.9,'#bcc8d6',0.02]
+                    : [['#10151f','#1d2533','#2b3647','#3a475a'],'#9fb0c8',0.5,0.5,'#1a2230',0.02],
+      thunder:  [['#0a0d14','#141a26','#1f2738','#2a3346'],'#8a97a8',0.5,0.35,'#10141c',0.022],
+    };
+    return P[cat] || P.cloudy;
+  }
+  function applyWeather(cat, isDay, temp, place) {
+    weatherCat = cat;
+    sun.visible    = isDay && (cat === 'clear' || cat === 'cloudy');
+    moon.visible   = !isDay && (cat === 'clear' || cat === 'cloudy');
+    stars.visible  = !isDay && (cat === 'clear' || cat === 'cloudy');
+    clouds.visible = ['cloudy','overcast','rain','snow','thunder','fog'].includes(cat);
+    precipMode = (cat === 'rain' || cat === 'thunder') ? 'rain' : (cat === 'snow' ? 'snow' : 'none');
+    precip.visible = precipMode !== 'none';
+    if (precipMode === 'snow') { prMat.color.set('#ffffff'); prMat.size = 0.2; prMat.opacity = 0.95; }
+    else                       { prMat.color.set('#bcd6f2'); prMat.size = 0.1;  prMat.opacity = 0.8; }
+
+    const [pal, keyCol, keyI, hemiI, fogCol, fogDen] = pickPalette(cat, isDay);
+    setSky(pal[0], pal[1], pal[2], pal[3], fogCol, fogDen);
+    key.color.set(keyCol); key.intensity = keyI; hemi.intensity = hemiI;
+
+    const icon = { clear: isDay?'☀️':'🌙', cloudy: isDay?'⛅':'☁️', overcast:'☁️',
+                   fog:'🌫️', rain:'🌧️', snow:'❄️', thunder:'⛈️' }[cat] || '🌤️';
+    weatherEl.textContent = `${icon} ${JP[cat]||''}` +
+      (temp != null ? `  ${Math.round(temp)}°C` : '') + (place ? `  ${place}` : '');
+  }
+  function catOf(code) {
+    if (code === 0 || code === 1) return 'clear';
+    if (code === 2) return 'cloudy';
+    if (code === 3) return 'overcast';
+    if (code === 45 || code === 48) return 'fog';
+    if (code >= 71 && code <= 77) return 'snow';
+    if (code >= 85 && code <= 86) return 'snow';
+    if (code >= 95) return 'thunder';
+    if ((code >= 51 && code <= 67) || (code >= 80 && code <= 82)) return 'rain';
+    return 'cloudy';
+  }
+  function fetchWeather() {
+    weatherEl.textContent = '🛰 天気取得中…';
+    const fallback = (msg) => { const h = new Date().getHours();
+      applyWeather('clear', h >= 6 && h < 18, null, msg || '位置情報なし'); };
+    if (!navigator.geolocation) return fallback('非対応');
+    navigator.geolocation.getCurrentPosition((pos) => {
+      const la = pos.coords.latitude, lo = pos.coords.longitude;
+      fetch(`https://api.open-meteo.com/v1/forecast?latitude=${la}&longitude=${lo}&current=weather_code,temperature_2m,is_day`)
+        .then(r => r.json())
+        .then(d => { const c = d.current;
+          applyWeather(catOf(c.weather_code), c.is_day === 1, c.temperature_2m, ''); })
+        .catch(() => fallback('取得失敗'));
+    }, () => fallback('位置情報オフ'), { timeout: 8000, maximumAge: 600000 });
+  }
+  function updateWeather(dt, t) {
+    if (clouds.visible) clouds.children.forEach((c) => {
+      c.position.x += dt * c.userData.spd; if (c.position.x > 28) c.position.x = -28; });
+    if (precip.visible) {
+      const a = prPos;
+      for (let i = 0; i < PRN; i++) {
+        if (precipMode === 'rain') { a[i*3+1] -= prV[i] * dt; a[i*3] += dt * 1.5; }
+        else { a[i*3+1] -= prV[i] * 0.22 * dt; a[i*3] += Math.sin(t * 1.5 + i) * 0.5 * dt; }
+        if (a[i*3+1] < 0) { a[i*3+1] = 24; a[i*3] = (Math.random()-0.5) * 30; a[i*3+2] = -14 + Math.random() * 22; }
+      }
+      prGeo.attributes.position.needsUpdate = true;
+    }
+    if (weatherCat === 'thunder' && Math.random() < dt * 0.22) flash = 1;
+    if (flash > 0) { flash = Math.max(0, flash - dt * 2.2); }
+    flashEl.style.opacity = (flash * 0.7).toFixed(3);
+  }
+
+  // ───────────────────────────────────────────────────────────
+  //  Audio (Web Audio, generated — no files, works offline)
+  // ───────────────────────────────────────────────────────────
+  let actx = null;
+  function unlockAudio() {
+    if (!actx) { const AC = window.AudioContext || window.webkitAudioContext; if (AC) actx = new AC(); }
+    if (actx && actx.state === 'suspended') actx.resume();
+  }
+  function deflateSound() {           // "プシューッ" — filtered noise sweeping down
+    if (!actx) return;
+    const dur = 1.5, sr = actx.sampleRate, buf = actx.createBuffer(1, sr * dur, sr), d = buf.getChannelData(0);
+    for (let i = 0; i < d.length; i++) { const t = i / d.length; d[i] = (Math.random()*2 - 1) * Math.pow(1 - t, 1.7); }
+    const src = actx.createBufferSource(); src.buffer = buf;
+    const f = actx.createBiquadFilter(); f.type = 'bandpass'; f.Q.value = 0.8;
+    f.frequency.setValueAtTime(2000, actx.currentTime);
+    f.frequency.exponentialRampToValueAtTime(280, actx.currentTime + dur);
+    const g = actx.createGain(); g.gain.value = 0.45;
+    src.connect(f); f.connect(g); g.connect(actx.destination); src.start();
+  }
+  function beep(freq, start, dur) {
+    const o = actx.createOscillator(); o.type = 'square'; o.frequency.value = freq;
+    const g = actx.createGain();
+    g.gain.setValueAtTime(0.0001, start);
+    g.gain.exponentialRampToValueAtTime(0.25, start + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001, start + dur);
+    o.connect(g); g.connect(actx.destination); o.start(start); o.stop(start + dur);
+  }
+  function alarmBeep() { if (!actx) return; const t = actx.currentTime; beep(880, t, 0.18); beep(1175, t + 0.22, 0.2); }
+
+  // ───────────────────────────────────────────────────────────
+  //  Alarm
+  // ───────────────────────────────────────────────────────────
+  const alarmBtn = document.getElementById('alarmBtn');
+  const alarmPanel = document.getElementById('alarmPanel');
+  const alarmTimeEl = document.getElementById('alarmTime');
+  const alarmOnEl = document.getElementById('alarmOn');
+  const alarmClose = document.getElementById('alarmClose');
+  const weatherBtn = document.getElementById('weatherBtn');
+  const ringEl = document.getElementById('ring');
+  const ringStop = document.getElementById('ringStop');
+  let alarmTimer = null;
+
+  alarmTimeEl.value = localStorage.getItem('bc_alarmTime') || '07:00';
+  alarmOnEl.checked = localStorage.getItem('bc_alarmOn') === '1';
+  const saveAlarm = () => {
+    localStorage.setItem('bc_alarmTime', alarmTimeEl.value);
+    localStorage.setItem('bc_alarmOn', alarmOnEl.checked ? '1' : '0');
+  };
+  alarmTimeEl.addEventListener('change', saveAlarm);
+  alarmOnEl.addEventListener('change', saveAlarm);
+  alarmBtn.addEventListener('click', () => { unlockAudio(); alarmPanel.classList.toggle('open'); });
+  alarmClose.addEventListener('click', () => alarmPanel.classList.remove('open'));
+  weatherBtn.addEventListener('click', () => { unlockAudio(); fetchWeather(); });
+
+  function startAlarm() {
+    if (ringEl.classList.contains('open')) return;
+    ringEl.classList.add('open'); unlockAudio(); alarmBeep();
+    alarmTimer = setInterval(alarmBeep, 850);
+    if (balloonState.mode === 'tied') pressButton();   // let the clock go wild
+  }
+  function stopAlarm() {
+    ringEl.classList.remove('open');
+    if (alarmTimer) { clearInterval(alarmTimer); alarmTimer = null; }
+  }
+  ringStop.addEventListener('click', stopAlarm);
+  setInterval(() => {
+    if (!alarmOnEl.checked || ringEl.classList.contains('open')) return;
+    const now = new Date();
+    const hhmm = String(now.getHours()).padStart(2,'0') + ':' + String(now.getMinutes()).padStart(2,'0');
+    if (alarmTimeEl.value === hhmm && now.getSeconds() < 2) startAlarm();
+  }, 1000);
+
+  // ───────────────────────────────────────────────────────────
   //  Interaction: tap / click the button (drag-aware)
   // ───────────────────────────────────────────────────────────
   const raycaster = new THREE.Raycaster();
@@ -379,7 +685,7 @@
   const cv = renderer.domElement;
 
   let downX = 0, downY = 0, moved = false;
-  cv.addEventListener('pointerdown', (e) => { downX = e.clientX; downY = e.clientY; moved = false; });
+  cv.addEventListener('pointerdown', (e) => { unlockAudio(); downX = e.clientX; downY = e.clientY; moved = false; });
   cv.addEventListener('pointermove', (e) => {
     if (Math.hypot(e.clientX - downX, e.clientY - downY) > 10) moved = true;
   });
@@ -402,6 +708,7 @@
       balloonState.thrustDir.set(Math.random()-0.5, Math.random()-0.5, Math.random()-0.5).normalize();
       balloonState.omega.set(Math.random()-0.5, Math.random()-0.5, Math.random()-0.5)
                          .multiplyScalar(7 + Math.random()*4);
+      deflateSound();
     } else {
       resetBalloon();
     }
@@ -527,6 +834,8 @@
 
     updateBalloon(dt, t);
     updateParticles(dt);
+    updateWeather(dt, t);
+    if (stars.visible) stars.material.opacity = 0.6 + Math.sin(t * 3) * 0.25;
 
     if (balloonState.mode === 'tied') {
       string.visible = true;
@@ -547,6 +856,7 @@
     requestAnimationFrame(tick);
   }
   renderClock();
+  fetchWeather();          // recolor the sky to today's weather
   tick();
 
   addEventListener('resize', () => {
@@ -554,6 +864,11 @@
     camera.updateProjectionMatrix();
     renderer.setSize(innerWidth, innerHeight);
   });
+  }
+
+  // Register the service worker so the home-screen app caches itself for offline use.
+  if ('serviceWorker' in navigator) {
+    addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
   }
   </script>
 </body>
