@@ -157,7 +157,7 @@
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.05;
+  renderer.toneMappingExposure = 0.92;
   renderer.outputEncoding = THREE.sRGBEncoding;
   app.appendChild(renderer.domElement);
 
@@ -240,18 +240,28 @@
   scene.add(tiles);
   const tX = new Float32Array(GN * GN), tZ = new Float32Array(GN * GN);
   const tPh = new Float32Array(GN * GN), tSpk = new Float32Array(GN * GN);
+  const tHeight = new Float32Array(GN * GN);
+  const tFlat = new Uint8Array(GN * GN);                 // 1 = locked flat (button keep-out)
   { let i = 0; for (let gx = 0; gx < GN; gx++) for (let gz = 0; gz < GN; gz++) {
     tX[i] = (gx - (GN - 1) / 2) * TILE; tZ[i] = (gz - (GN - 1) / 2) * TILE;
-    tPh[i] = Math.random() * 6.283; i++; } }
+    tPh[i] = Math.random() * 6.283;
+    const dx = tX[i], dz = tZ[i] - 4;                    // push button sits at (0,0,4)
+    tFlat[i] = (dx*dx + dz*dz < 4.6) ? 1 : 0;            // keep a flat pad so it never clips
+    i++; } }
   const _tileObj = new THREE.Object3D(), _tileCol = new THREE.Color();
   function updateFloor(dt, t) {
-    if (Math.random() < dt * 1.6) tSpk[(Math.random() * GN * GN) | 0] = 1.6;   // launch a vine
+    let spk = (Math.random() < dt * 1.6) ? (Math.random() * GN * GN) | 0 : -1;
+    if (spk >= 0 && !tFlat[spk]) tSpk[spk] = 1.6;        // launch a vine (never on the pad)
     for (let i = 0; i < GN * GN; i++) {
-      let h = 0.25 + (Math.sin(t * 1.2 + tPh[i]) * 0.5 + 0.5) * 0.7
-                   + (Math.sin(t * 0.8 + tX[i] * 0.45 + tZ[i] * 0.38) * 0.5 + 0.5) * 0.6;
-      let sx = 1;
-      if (tSpk[i] > 0) { tSpk[i] = Math.max(0, tSpk[i] - dt);
-        const b = Math.sin(Math.min(1, tSpk[i] / 1.6) * Math.PI); h += b * 6.0; sx = 1 - b * 0.55; }
+      let h, sx = 1;
+      if (tFlat[i]) { tSpk[i] = 0; h = 0.14; }
+      else {
+        h = 0.25 + (Math.sin(t * 1.2 + tPh[i]) * 0.5 + 0.5) * 0.7
+                 + (Math.sin(t * 0.8 + tX[i] * 0.45 + tZ[i] * 0.38) * 0.5 + 0.5) * 0.6;
+        if (tSpk[i] > 0) { tSpk[i] = Math.max(0, tSpk[i] - dt);
+          const b = Math.sin(Math.min(1, tSpk[i] / 1.6) * Math.PI); h += b * 6.0; sx = 1 - b * 0.55; }
+      }
+      tHeight[i] = h;
       _tileObj.position.set(tX[i], h / 2, tZ[i]);
       _tileObj.scale.set(sx, h, sx); _tileObj.updateMatrix();
       tiles.setMatrixAt(i, _tileObj.matrix);
@@ -260,6 +270,48 @@
     }
     tiles.instanceMatrix.needsUpdate = true;
     if (tiles.instanceColor) tiles.instanceColor.needsUpdate = true;
+  }
+
+  // Tiny ninja cat that constantly leaps from tile-top to tile-top
+  const ninja = new THREE.Group();
+  const ninMat  = new THREE.MeshStandardMaterial({ color: '#2a2e3a', roughness: 0.7 });
+  const ninBand = new THREE.MeshStandardMaterial({ color: '#c0392b', roughness: 0.6 });
+  const nbody = new THREE.Mesh(new THREE.SphereGeometry(0.32, 18, 14), ninMat);
+  nbody.scale.set(1, 0.9, 1.15); nbody.position.y = 0.32; nbody.castShadow = true; ninja.add(nbody);
+  const nhead = new THREE.Mesh(new THREE.SphereGeometry(0.24, 16, 12), ninMat);
+  nhead.position.set(0, 0.64, 0.06); ninja.add(nhead);
+  const nEarGeo = new THREE.ConeGeometry(0.1, 0.16, 4);
+  const nEarL = new THREE.Mesh(nEarGeo, ninMat); nEarL.position.set(-0.13, 0.82, 0.05); ninja.add(nEarL);
+  const nEarR = new THREE.Mesh(nEarGeo, ninMat); nEarR.position.set(0.13, 0.82, 0.05); ninja.add(nEarR);
+  const band = new THREE.Mesh(new THREE.CylinderGeometry(0.245, 0.245, 0.13, 16, 1, true), ninBand);
+  band.rotation.x = Math.PI / 2; band.position.set(0, 0.66, 0.06); ninja.add(band);
+  const nEyeMat = new THREE.MeshBasicMaterial({ color: '#ffffff' });
+  const nEyeL = new THREE.Mesh(new THREE.SphereGeometry(0.05, 8, 8), nEyeMat); nEyeL.position.set(-0.09, 0.66, 0.23); ninja.add(nEyeL);
+  const nEyeR = new THREE.Mesh(new THREE.SphereGeometry(0.05, 8, 8), nEyeMat); nEyeR.position.set(0.09, 0.66, 0.23); ninja.add(nEyeR);
+  const bt1 = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.04, 0.32), ninBand); bt1.position.set(-0.08, 0.68, -0.22); bt1.rotation.x = 0.5; ninja.add(bt1);
+  const bt2 = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.04, 0.32), ninBand); bt2.position.set(0.06, 0.63, -0.24); bt2.rotation.x = 0.7; ninja.add(bt2);
+  const nTail = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.03, 0.5, 8), ninMat); nTail.position.set(0, 0.34, -0.34); nTail.rotation.x = -0.9; ninja.add(nTail);
+  ninja.scale.setScalar(0.8); scene.add(ninja);
+  let nFrom = ((GN * GN) / 2) | 0, nTo = nFrom, nT = 1, nDur = 0.4, nFlip = 0;
+  function pickTile(from) {
+    const gx = (from / GN) | 0, gz = from % GN;
+    const nx = Math.max(0, Math.min(GN - 1, gx + ((Math.random() * 5) | 0) - 2));
+    const nz = Math.max(0, Math.min(GN - 1, gz + ((Math.random() * 5) | 0) - 2));
+    let idx = nx * GN + nz; if (idx === from) idx = (idx + 1) % (GN * GN);
+    return idx;
+  }
+  function updateNinja(dt, t) {
+    nT += dt / nDur;
+    if (nT >= 1) { nFrom = nTo; nTo = pickTile(nFrom); nT = 0; nDur = 0.32 + Math.random() * 0.22;
+      nFlip = Math.random() < 0.4 ? (Math.random() < 0.5 ? 1 : -1) : 0; }
+    const k = Math.min(1, nT);
+    const x = THREE.MathUtils.lerp(tX[nFrom], tX[nTo], k);
+    const z = THREE.MathUtils.lerp(tZ[nFrom], tZ[nTo], k);
+    const yTop = THREE.MathUtils.lerp(tHeight[nFrom] || 0.2, tHeight[nTo] || 0.2, k);
+    ninja.position.set(x, yTop + Math.sin(k * Math.PI) * 1.3, z);
+    const dx = tX[nTo] - tX[nFrom], dz = tZ[nTo] - tZ[nFrom];
+    if (Math.abs(dx) + Math.abs(dz) > 0.001) ninja.rotation.y = Math.atan2(dx, dz);
+    ninja.rotation.x = nFlip ? nFlip * k * Math.PI * 2 : Math.sin(t * 8) * 0.05;   // ninja flip!
   }
 
   // ───────────────────────────────────────────────────────────
@@ -788,17 +840,17 @@
   const JP = { clear:'快晴', cloudy:'晴れ時々くもり', overcast:'くもり', fog:'霧', rain:'雨', snow:'雪', thunder:'雷雨' };
   function pickPalette(cat, day) {
     const P = {
-      clear:    day ? [['#2f6fd8','#5f9bef','#a9cdf6','#d9ebff'],'#fff4e0',2.4,0.95,'#bcd6f2',0.006]
+      clear:    day ? [['#2a5cae','#4f82c8','#86abd6','#a9c6e2'],'#ffe6c0',1.55,0.7,'#9fbcd8',0.007]
                     : [['#05081a','#0a1738','#10244a','#152a52'],'#aec4ff',0.5,0.35,'#0a1426',0.012],
-      cloudy:   day ? [['#5e7da6','#89a6c6','#b9cbdd','#dde7ef'],'#f0f2f5',1.5,0.85,'#c4d2e0',0.01]
+      cloudy:   day ? [['#52708f','#7892ad','#9fb1c2','#bcc9d6'],'#dfe4ea',1.1,0.7,'#aab8c6',0.011]
                     : [['#0d1422','#18233a','#243150','#2c3a5c'],'#9fb0cf',0.55,0.4,'#141d2e',0.013],
-      overcast: day ? [['#6c7682','#929ba6','#b3bcc4','#cdd4da'],'#dfe3e8',1.1,0.9,'#c2c9cf',0.014]
+      overcast: day ? [['#5f6975','#7d8691','#9aa3ac','#aeb6bd'],'#cdd2d8',0.85,0.7,'#aab1b8',0.015]
                     : [['#11151c','#1c232c','#283039','#333c45'],'#9aa6b2',0.5,0.5,'#1a222b',0.016],
-      fog:      day ? [['#8a96a2','#a6b1bb','#c0c8ce','#d7dde1'],'#e6ebef',1.0,0.95,'#c6ccd1',0.05]
+      fog:      day ? [['#79858f','#919ca5','#a7b0b7','#bcc3c8'],'#cfd5d9',0.8,0.72,'#aeb4b9',0.05]
                     : [['#14181e','#20262d','#2b333b','#363f48'],'#9aa6b2',0.5,0.55,'#222a31',0.055],
-      rain:     day ? [['#39434f','#525d6a','#6f7b88','#8893a0'],'#aeb8c4',0.9,0.75,'#5a6672',0.02]
+      rain:     day ? [['#39434f','#525d6a','#6f7b88','#8893a0'],'#aeb8c4',0.85,0.62,'#5a6672',0.02]
                     : [['#0c1018','#161d27','#222b37','#2d3744'],'#8a97a8',0.5,0.45,'#141a22',0.02],
-      snow:     day ? [['#5d6e84','#8496ad','#aebfd2','#e3ecf5'],'#eaf2fb',1.3,0.9,'#bcc8d6',0.02]
+      snow:     day ? [['#566479','#76869c','#9aaabd','#c2cfdc'],'#dde7f1',0.95,0.72,'#aeb9c6',0.02]
                     : [['#10151f','#1d2533','#2b3647','#3a475a'],'#9fb0c8',0.5,0.5,'#1a2230',0.02],
       thunder:  [['#0a0d14','#141a26','#1f2738','#2a3346'],'#8a97a8',0.5,0.35,'#10141c',0.022],
     };
@@ -1344,7 +1396,7 @@
       THREE.ShaderPass && THREE.GammaCorrectionShader) {
     composer = new THREE.EffectComposer(renderer);
     composer.addPass(new THREE.RenderPass(scene, camera));
-    const bloom = new THREE.UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.7, 0.55, 0.8);
+    const bloom = new THREE.UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.42, 0.5, 0.9);
     composer.addPass(bloom);
     composer.addPass(new THREE.ShaderPass(THREE.GammaCorrectionShader));
   }
@@ -1373,6 +1425,7 @@
     updateConfetti(dt);
     updateSplash(dt);
     updateFloor(dt, t);
+    updateNinja(dt, t);
     updateWeather(dt, t);
     if (stars.visible) stars.material.opacity = 0.6 + Math.sin(t * 3) * 0.25;
 
