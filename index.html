@@ -1,0 +1,551 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>BalloonClock 3D — 風船デジタル時計</title>
+<style>
+  :root { color-scheme: dark; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #05060a; }
+  #app { position: fixed; inset: 0; }
+  canvas { display: block; }
+
+  #hud {
+    position: fixed; left: 16px; top: 16px; z-index: 10;
+    font-family: "Hiragino Kaku Gothic ProN", "Yu Gothic", Meiryo, system-ui, sans-serif;
+    color: #cfe9ff; pointer-events: none; user-select: none;
+    text-shadow: 0 1px 6px rgba(0,0,0,.8);
+  }
+  #hud h1 { font-size: 15px; letter-spacing: .04em; font-weight: 700; opacity: .95; }
+  #hud p  { font-size: 12.5px; margin-top: 4px; opacity: .72; line-height: 1.5; }
+
+  #state {
+    position: fixed; right: 16px; top: 16px; z-index: 10;
+    font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px;
+    color: #8fd3ff; background: rgba(10,20,35,.55); border: 1px solid rgba(120,200,255,.25);
+    padding: 7px 11px; border-radius: 8px; pointer-events: none; user-select: none;
+    backdrop-filter: blur(4px);
+  }
+  #hint {
+    position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%); z-index: 10;
+    font-family: "Hiragino Kaku Gothic ProN", "Yu Gothic", Meiryo, system-ui, sans-serif;
+    font-size: 13px; color: #eaf6ff; background: rgba(255,70,90,.20);
+    border: 1px solid rgba(255,120,140,.45); padding: 8px 16px; border-radius: 999px;
+    user-select: none; pointer-events: none; transition: opacity .4s; letter-spacing: .03em;
+    text-shadow: 0 1px 4px rgba(0,0,0,.6);
+  }
+</style>
+</head>
+<body>
+  <div id="app"></div>
+  <div id="hud">
+    <h1>🎈 BalloonClock 3D</h1>
+    <p>赤いボタンを <b>ポチッ</b> と押すと風船の空気が抜けて暴れ回ります。<br>
+       ドラッグで視点回転 / ホイールでズーム / もう一度ボタンで再セット。</p>
+  </div>
+  <div id="state">READY</div>
+  <div id="hint">▼ 赤いボタンを押してね</div>
+
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+    }
+  }
+  </script>
+
+  <script type="module">
+  import * as THREE from 'three';
+  import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+  // ───────────────────────────────────────────────────────────
+  //  Renderer / Scene / Camera
+  // ───────────────────────────────────────────────────────────
+  const app = document.getElementById('app');
+  const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  renderer.setSize(innerWidth, innerHeight);
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.05;
+  app.appendChild(renderer.domElement);
+
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color('#070a14');
+  scene.fog = new THREE.FogExp2('#070a14', 0.022);
+
+  const camera = new THREE.PerspectiveCamera(55, innerWidth / innerHeight, 0.1, 200);
+  camera.position.set(0, 4.5, 13);
+
+  const controls = new OrbitControls(camera, renderer.domElement);
+  controls.enableDamping = true;
+  controls.dampingFactor = 0.08;
+  controls.target.set(0, 3, 0);
+  controls.minDistance = 6;
+  controls.maxDistance = 30;
+  controls.maxPolarAngle = Math.PI * 0.495; // keep above floor
+
+  // ───────────────────────────────────────────────────────────
+  //  Lights
+  // ───────────────────────────────────────────────────────────
+  scene.add(new THREE.HemisphereLight('#9fc7ff', '#1a1530', 0.7));
+
+  const key = new THREE.DirectionalLight('#ffffff', 2.1);
+  key.position.set(6, 12, 8);
+  key.castShadow = true;
+  key.shadow.mapSize.set(2048, 2048);
+  key.shadow.camera.near = 1; key.shadow.camera.far = 50;
+  key.shadow.camera.left = -16; key.shadow.camera.right = 16;
+  key.shadow.camera.top = 16; key.shadow.camera.bottom = -16;
+  key.shadow.bias = -0.0004;
+  scene.add(key);
+
+  const rim = new THREE.PointLight('#5fa8ff', 0.8, 60);
+  rim.position.set(-8, 6, -6);
+  scene.add(rim);
+
+  // ───────────────────────────────────────────────────────────
+  //  Floor + grid (spatial reference)
+  // ───────────────────────────────────────────────────────────
+  const floor = new THREE.Mesh(
+    new THREE.CircleGeometry(40, 64),
+    new THREE.MeshStandardMaterial({ color: '#0c1020', roughness: 1, metalness: 0 })
+  );
+  floor.rotation.x = -Math.PI / 2;
+  floor.receiveShadow = true;
+  scene.add(floor);
+
+  const grid = new THREE.GridHelper(60, 60, '#22406b', '#15233d');
+  grid.material.transparent = true;
+  grid.material.opacity = 0.5;
+  scene.add(grid);
+
+  // ───────────────────────────────────────────────────────────
+  //  Digital clock panel (7-segment, drawn on a canvas texture)
+  // ───────────────────────────────────────────────────────────
+  const clockCanvas = document.createElement('canvas');
+  clockCanvas.width = 1024; clockCanvas.height = 320;
+  const cctx = clockCanvas.getContext('2d');
+  const clockTex = new THREE.CanvasTexture(clockCanvas);
+  clockTex.anisotropy = renderer.capabilities.getMaxAnisotropy();
+
+  // 7-segment lookup: segments a,b,c,d,e,f,g
+  const SEG = {
+    '0':[1,1,1,1,1,1,0], '1':[0,1,1,0,0,0,0], '2':[1,1,0,1,1,0,1],
+    '3':[1,1,1,1,0,0,1], '4':[0,1,1,0,0,1,1], '5':[1,0,1,1,0,1,1],
+    '6':[1,0,1,1,1,1,1], '7':[1,1,1,0,0,0,0], '8':[1,1,1,1,1,1,1],
+    '9':[1,1,1,1,0,1,1]
+  };
+
+  function drawDigit(ctx, x, y, w, h, digit) {
+    const t = Math.round(w * 0.16);        // segment thickness
+    const on  = '#39e6ff', onGlow = 'rgba(57,230,255,0.85)';
+    const off = 'rgba(40,70,90,0.18)';
+    const segs = SEG[digit] || [0,0,0,0,0,0,0];
+    const hx = x + t * 0.6, hw = w - t * 1.2;             // horizontal seg span
+    const seg = (a, sx, sy, sw, sh, horiz) => {
+      ctx.fillStyle = a ? on : off;
+      ctx.shadowColor = a ? onGlow : 'transparent';
+      ctx.shadowBlur = a ? t * 1.4 : 0;
+      roundRect(ctx, sx, sy, sw, sh, Math.min(sw, sh) / 2);
+      ctx.fill();
+    };
+    // a (top), d (bottom), g (mid)
+    seg(segs[0], hx, y,            hw, t);
+    seg(segs[6], hx, y + h/2 - t/2, hw, t);
+    seg(segs[3], hx, y + h - t,    hw, t);
+    // f,b (upper left/right) ; e,c (lower left/right)
+    seg(segs[5], x,         y + t*0.6,        t, h/2 - t*0.9);
+    seg(segs[1], x + w - t, y + t*0.6,        t, h/2 - t*0.9);
+    seg(segs[4], x,         y + h/2 + t*0.3,  t, h/2 - t*0.9);
+    seg(segs[2], x + w - t, y + h/2 + t*0.3,  t, h/2 - t*0.9);
+    ctx.shadowBlur = 0;
+  }
+  function roundRect(ctx, x, y, w, h, r) {
+    r = Math.min(r, w/2, h/2);
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y,     x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x,     y + h, r);
+    ctx.arcTo(x,     y + h, x,     y,     r);
+    ctx.arcTo(x,     y,     x + w, y,     r);
+    ctx.closePath();
+  }
+  function drawColon(ctx, x, y, h, on) {
+    const r = h * 0.06;
+    ctx.fillStyle = on ? '#39e6ff' : 'rgba(40,70,90,0.18)';
+    ctx.shadowColor = on ? 'rgba(57,230,255,0.85)' : 'transparent';
+    ctx.shadowBlur = on ? r * 2 : 0;
+    ctx.beginPath(); ctx.arc(x, y + h * 0.34, r, 0, 7); ctx.fill();
+    ctx.beginPath(); ctx.arc(x, y + h * 0.66, r, 0, 7); ctx.fill();
+    ctx.shadowBlur = 0;
+  }
+
+  function renderClock() {
+    const ctx = cctx, W = clockCanvas.width, H = clockCanvas.height;
+    // LCD panel background
+    ctx.clearRect(0, 0, W, H);
+    ctx.fillStyle = '#06141b';
+    roundRect(ctx, 0, 0, W, H, 40); ctx.fill();
+    ctx.strokeStyle = 'rgba(57,230,255,0.18)'; ctx.lineWidth = 4;
+    roundRect(ctx, 6, 6, W - 12, H - 12, 36); ctx.stroke();
+
+    const now = new Date();
+    const hh = String(now.getHours()).padStart(2, '0');
+    const mm = String(now.getMinutes()).padStart(2, '0');
+    const ss = String(now.getSeconds()).padStart(2, '0');
+    const blink = now.getMilliseconds() < 500;
+
+    const dw = 110, dh = 210, gap = 18, colonW = 46;
+    const total = dw*6 + gap*4 + colonW*2;
+    let x = (W - total) / 2; const y = (H - dh) / 2;
+    const put = (d) => { drawDigit(ctx, x, y, dw, dh, d); x += dw + gap; };
+    put(hh[0]); put(hh[1]);
+    drawColon(ctx, x + colonW/2, y, dh, blink); x += colonW + gap;
+    put(mm[0]); put(mm[1]);
+    drawColon(ctx, x + colonW/2, y, dh, blink); x += colonW + gap;
+    put(ss[0]); put(ss[1]);
+
+    // little date label
+    const days = ['日','月','火','水','木','金','土'];
+    const label = `${now.getFullYear()}.${String(now.getMonth()+1).padStart(2,'0')}.${String(now.getDate()).padStart(2,'0')} (${days[now.getDay()]})`;
+    ctx.fillStyle = 'rgba(57,230,255,0.55)';
+    ctx.font = '600 30px ui-monospace, Menlo, monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(label, W / 2, H - 26);
+
+    clockTex.needsUpdate = true;
+  }
+
+  // Clock object: frame + emissive screen, gently floating
+  const clockGroup = new THREE.Group();
+  const frame = new THREE.Mesh(
+    new THREE.BoxGeometry(6.6, 2.3, 0.35),
+    new THREE.MeshStandardMaterial({ color: '#10141f', roughness: 0.5, metalness: 0.6 })
+  );
+  frame.castShadow = true;
+  clockGroup.add(frame);
+  const screen = new THREE.Mesh(
+    new THREE.PlaneGeometry(6.0, 1.85),
+    new THREE.MeshBasicMaterial({ map: clockTex, toneMapped: false })
+  );
+  screen.position.z = 0.19;
+  clockGroup.add(screen);
+  clockGroup.position.set(0, 6.2, 0);
+  scene.add(clockGroup);
+
+  // ───────────────────────────────────────────────────────────
+  //  Push button (clickable)
+  // ───────────────────────────────────────────────────────────
+  const buttonGroup = new THREE.Group();
+  buttonGroup.position.set(0, 0, 4);
+  const base = new THREE.Mesh(
+    new THREE.CylinderGeometry(1.15, 1.3, 0.55, 48),
+    new THREE.MeshStandardMaterial({ color: '#1b2030', roughness: 0.6, metalness: 0.5 })
+  );
+  base.position.y = 0.28; base.castShadow = true; base.receiveShadow = true;
+  buttonGroup.add(base);
+  const cap = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.92, 0.98, 0.5, 48),
+    new THREE.MeshStandardMaterial({ color: '#ff3b54', roughness: 0.32, metalness: 0.15,
+      emissive: '#5a0010', emissiveIntensity: 0.6 })
+  );
+  cap.position.y = 0.72; cap.castShadow = true;
+  cap.name = 'button';
+  buttonGroup.add(cap);
+  // glossy top
+  const gloss = new THREE.Mesh(
+    new THREE.CircleGeometry(0.6, 40),
+    new THREE.MeshBasicMaterial({ color: '#ff8a98', transparent: true, opacity: 0.35 })
+  );
+  gloss.rotation.x = -Math.PI / 2; gloss.position.y = 0.975;
+  buttonGroup.add(gloss);
+  scene.add(buttonGroup);
+  const buttonRestY = cap.position.y;
+
+  // ───────────────────────────────────────────────────────────
+  //  Balloon
+  // ───────────────────────────────────────────────────────────
+  const balloon = new THREE.Group();
+  const balloonMat = new THREE.MeshStandardMaterial({
+    color: '#ff4d6d', roughness: 0.18, metalness: 0.0,
+    emissive: '#3a0010', emissiveIntensity: 0.25
+  });
+  const body = new THREE.Mesh(new THREE.SphereGeometry(1, 40, 32), balloonMat);
+  body.scale.set(1, 1.18, 1);
+  body.castShadow = true;
+  balloon.add(body);
+  // knot / nozzle pointing down
+  const nozzle = new THREE.Mesh(
+    new THREE.ConeGeometry(0.22, 0.5, 16),
+    new THREE.MeshStandardMaterial({ color: '#d23355', roughness: 0.4 })
+  );
+  nozzle.position.y = -1.25;
+  balloon.add(nozzle);
+  // highlight blob
+  const shine = new THREE.Mesh(
+    new THREE.SphereGeometry(0.28, 16, 16),
+    new THREE.MeshBasicMaterial({ color: '#ffd6dd', transparent: true, opacity: 0.55 })
+  );
+  shine.position.set(-0.35, 0.5, 0.78);
+  balloon.add(shine);
+  scene.add(balloon);
+
+  const TIED_POS = new THREE.Vector3(2.2, 3.0, 0); // resting spot next to clock
+  const balloonState = {
+    mode: 'tied',                 // tied | flying | empty
+    air: 1,                       // 1 full → 0 empty
+    vel: new THREE.Vector3(),
+    thrustDir: new THREE.Vector3(0, -1, 0),
+  };
+
+  function resetBalloon() {
+    balloonState.mode = 'tied';
+    balloonState.air = 1;
+    balloonState.vel.set(0, 0, 0);
+    balloonState.thrustDir.set(0, -1, 0);
+    balloon.position.copy(TIED_POS);
+    balloon.quaternion.identity();
+    balloon.scale.setScalar(1);
+    balloonMat.opacity = 1; balloonMat.transparent = false;
+  }
+  resetBalloon();
+
+  // String connecting balloon to the button base while tied
+  const stringMat = new THREE.LineBasicMaterial({ color: '#9fb6cf', transparent: true, opacity: 0.6 });
+  const stringGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]);
+  const string = new THREE.Line(stringGeo, stringMat);
+  scene.add(string);
+
+  // ───────────────────────────────────────────────────────────
+  //  Escaping-air particles (Points pool)
+  // ───────────────────────────────────────────────────────────
+  const P_COUNT = 600;
+  const pPos = new Float32Array(P_COUNT * 3);
+  const pVel = new Float32Array(P_COUNT * 3);
+  const pLife = new Float32Array(P_COUNT);
+  const pGeo = new THREE.BufferGeometry();
+  pGeo.setAttribute('position', new THREE.BufferAttribute(pPos, 3));
+  const pMat = new THREE.PointsMaterial({
+    color: '#dff3ff', size: 0.16, transparent: true, opacity: 0.85,
+    depthWrite: false, blending: THREE.AdditiveBlending
+  });
+  const points = new THREE.Points(pGeo, pMat);
+  points.frustumCulled = false;
+  scene.add(points);
+  let pHead = 0;
+  const _np = new THREE.Vector3();
+  function spawnParticle(origin, dir) {
+    const i = pHead; pHead = (pHead + 1) % P_COUNT;
+    pPos[i*3] = origin.x; pPos[i*3+1] = origin.y; pPos[i*3+2] = origin.z;
+    const spd = 6 + Math.random() * 6;
+    pVel[i*3]   = dir.x * spd + (Math.random()-0.5) * 3;
+    pVel[i*3+1] = dir.y * spd + (Math.random()-0.5) * 3;
+    pVel[i*3+2] = dir.z * spd + (Math.random()-0.5) * 3;
+    pLife[i] = 0.5 + Math.random() * 0.4;
+  }
+  function updateParticles(dt) {
+    for (let i = 0; i < P_COUNT; i++) {
+      if (pLife[i] <= 0) { pPos[i*3+1] = -999; continue; }
+      pLife[i] -= dt;
+      pVel[i*3+1] -= 4 * dt;                    // slight gravity
+      pPos[i*3]   += pVel[i*3]   * dt;
+      pPos[i*3+1] += pVel[i*3+1] * dt;
+      pPos[i*3+2] += pVel[i*3+2] * dt;
+    }
+    pGeo.attributes.position.needsUpdate = true;
+  }
+
+  // ───────────────────────────────────────────────────────────
+  //  Interaction: click the button
+  // ───────────────────────────────────────────────────────────
+  const raycaster = new THREE.Raycaster();
+  const pointer = new THREE.Vector2();
+  let pressAnim = 0;
+  const stateEl = document.getElementById('state');
+  const hintEl = document.getElementById('hint');
+
+  function onClick(e) {
+    const r = renderer.domElement.getBoundingClientRect();
+    pointer.x = ((e.clientX - r.left) / r.width) * 2 - 1;
+    pointer.y = -((e.clientY - r.top) / r.height) * 2 + 1;
+    raycaster.setFromCamera(pointer, camera);
+    const hit = raycaster.intersectObject(cap, false);
+    if (hit.length > 0) pressButton();
+  }
+  renderer.domElement.addEventListener('click', onClick);
+
+  function pressButton() {
+    pressAnim = 1;                          // trigger cap press animation
+    hintEl.style.opacity = '0';
+    if (balloonState.mode === 'tied') {
+      // RELEASE! launch the balloon with a random kick
+      balloonState.mode = 'flying';
+      balloonState.air = 1;
+      const a = Math.random() * Math.PI * 2;
+      balloonState.vel.set(Math.cos(a) * 4, 6 + Math.random()*3, Math.sin(a) * 4);
+      balloonState.thrustDir.set(Math.random()-0.5, -1, Math.random()-0.5).normalize();
+    } else {
+      // re-inflate & re-tie
+      resetBalloon();
+    }
+  }
+
+  // ───────────────────────────────────────────────────────────
+  //  Balloon flight physics  (erratic deflating-balloon motion)
+  // ───────────────────────────────────────────────────────────
+  const BOUNDS = { x: 13, y: 14, z: 13, floor: 0.6 };
+  const _q = new THREE.Quaternion();
+  const _down = new THREE.Vector3(0, -1, 0);
+  const nozzleWorld = new THREE.Vector3();
+
+  function updateBalloon(dt, t) {
+    const s = balloonState;
+
+    if (s.mode === 'tied') {
+      // gentle bobbing while tied
+      balloon.position.set(
+        TIED_POS.x + Math.sin(t * 1.1) * 0.12,
+        TIED_POS.y + Math.sin(t * 1.6) * 0.18,
+        TIED_POS.z + Math.cos(t * 0.9) * 0.12
+      );
+      balloon.rotation.z = Math.sin(t * 1.3) * 0.05;
+      return;
+    }
+
+    if (s.mode === 'flying') {
+      // air drains in chaotic bursts
+      const burst = 0.10 + Math.random() * 0.12;
+      s.air = Math.max(0, s.air - burst * dt);
+
+      // nozzle direction random-walks on the sphere → erratic thrust
+      s.thrustDir.x += (Math.random() - 0.5) * 9 * dt;
+      s.thrustDir.y += (Math.random() - 0.5) * 9 * dt;
+      s.thrustDir.z += (Math.random() - 0.5) * 9 * dt;
+      s.thrustDir.normalize();
+
+      // thrust pushes balloon OPPOSITE to the escaping air
+      const power = 46 * (0.25 + s.air) * (0.6 + Math.random() * 0.8);
+      s.vel.addScaledVector(s.thrustDir, -power * dt);
+
+      // gravity + drag + speed cap
+      s.vel.y -= 6.5 * dt;
+      s.vel.multiplyScalar(0.985);
+      const sp = s.vel.length(), MAX = 26;
+      if (sp > MAX) s.vel.multiplyScalar(MAX / sp);
+
+      balloon.position.addScaledVector(s.vel, dt);
+
+      // bounce off the invisible play box (adds extra chaos)
+      const p = balloon.position;
+      const bounce = (axis, limit) => {
+        if (p[axis] > limit)  { p[axis] = limit;  s.vel[axis] = -Math.abs(s.vel[axis]) * 0.7; jitter(); }
+        if (p[axis] < -limit) { p[axis] = -limit; s.vel[axis] =  Math.abs(s.vel[axis]) * 0.7; jitter(); }
+      };
+      const jitter = () => {
+        s.vel.x += (Math.random()-0.5)*4; s.vel.z += (Math.random()-0.5)*4;
+      };
+      bounce('x', BOUNDS.x); bounce('z', BOUNDS.z);
+      if (p.y > BOUNDS.y) { p.y = BOUNDS.y; s.vel.y = -Math.abs(s.vel.y)*0.7; }
+      if (p.y < BOUNDS.floor) { p.y = BOUNDS.floor; s.vel.y = Math.abs(s.vel.y)*0.6; jitter(); }
+
+      // shrink as it deflates
+      const sc = 0.32 + 0.68 * s.air;
+      balloon.scale.set(sc * (1 + Math.sin(t*40)*0.04), sc * (1 - Math.sin(t*40)*0.04), sc);
+
+      // orient nozzle to point along the escaping-air direction (= thrustDir)
+      _q.setFromUnitVectors(_down, s.thrustDir);
+      balloon.quaternion.slerp(_q, 0.3);
+
+      // spray air particles from the nozzle
+      nozzle.getWorldPosition(nozzleWorld);
+      const n = 3 + (Math.random() * 4 | 0);
+      for (let k = 0; k < n; k++) spawnParticle(nozzleWorld, s.thrustDir);
+
+      if (s.air <= 0.001) {
+        s.mode = 'empty';
+        balloonMat.transparent = true;
+      }
+      return;
+    }
+
+    if (s.mode === 'empty') {
+      // limp deflated balloon flutters down to the floor
+      s.vel.y -= 9 * dt;
+      s.vel.multiplyScalar(0.96);
+      s.vel.x += Math.sin(t*8) * 1.4 * dt;     // last fluttering twitches
+      balloon.position.addScaledVector(s.vel, dt);
+      const p = balloon.position;
+      if (p.y < BOUNDS.floor) { p.y = BOUNDS.floor; s.vel.set(0,0,0); }
+      balloon.scale.lerp(new THREE.Vector3(0.34, 0.16, 0.34), 0.08); // flatten
+      balloonMat.opacity = THREE.MathUtils.lerp(balloonMat.opacity, 0.85, 0.05);
+      return;
+    }
+  }
+
+  // ───────────────────────────────────────────────────────────
+  //  Main loop
+  // ───────────────────────────────────────────────────────────
+  const clock = new THREE.Clock();
+  let clockAcc = 0;
+
+  function tick() {
+    const dt = Math.min(clock.getDelta(), 0.05);
+    const t = clock.elapsedTime;
+
+    // update the digital clock canvas ~10fps (enough for blinking colon)
+    clockAcc += dt;
+    if (clockAcc > 0.08) { renderClock(); clockAcc = 0; }
+
+    // clock floats gently
+    clockGroup.position.y = 6.2 + Math.sin(t * 0.8) * 0.12;
+    clockGroup.rotation.y = Math.sin(t * 0.35) * 0.12;
+
+    // button press spring animation
+    if (pressAnim > 0) {
+      pressAnim = Math.max(0, pressAnim - dt * 4);
+      cap.position.y = buttonRestY - Math.sin((1 - pressAnim) * Math.PI) * 0.22;
+    } else {
+      cap.position.y = buttonRestY;
+    }
+
+    updateBalloon(dt, t);
+    updateParticles(dt);
+
+    // string visible only while tied
+    if (balloonState.mode === 'tied') {
+      string.visible = true;
+      const pts = string.geometry.attributes.position.array;
+      pts[0] = buttonGroup.position.x; pts[1] = 1.0; pts[2] = buttonGroup.position.z;
+      pts[3] = balloon.position.x; pts[4] = balloon.position.y - 1.4; pts[5] = balloon.position.z;
+      string.geometry.attributes.position.needsUpdate = true;
+    } else {
+      string.visible = false;
+    }
+
+    // HUD state text
+    const labels = { tied: 'READY  ●充填済み', flying: 'WHEEE!  噴射中💨', empty: 'EMPTY  ぺしゃんこ' };
+    stateEl.textContent = labels[balloonState.mode] +
+      (balloonState.mode === 'flying' ? `  air:${(balloonState.air*100|0)}%` : '');
+
+    controls.update();
+    renderer.render(scene, camera);
+    requestAnimationFrame(tick);
+  }
+  renderClock();
+  tick();
+
+  // ───────────────────────────────────────────────────────────
+  //  Resize
+  // ───────────────────────────────────────────────────────────
+  addEventListener('resize', () => {
+    camera.aspect = innerWidth / innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(innerWidth, innerHeight);
+  });
+  </script>
+</body>
+</html>
