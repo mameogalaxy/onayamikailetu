@@ -14,7 +14,7 @@
 <style>
   :root { color-scheme: dark; }
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  html, body { width: 100%; height: 100%; overflow: hidden; background: #05060a; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #05060a; touch-action: manipulation; }
   #app { position: fixed; inset: 0; }
   canvas { display: block; touch-action: none; }
 
@@ -100,11 +100,6 @@
 </head>
 <body>
   <div id="app"></div>
-  <div id="hud">
-    <h1>🎈 BalloonClock 3D</h1>
-    <p>この<b>デジタル時計じたいが風船</b>。赤いボタンを <b>タップ</b> すると<br>
-       時計がしぼんで暴れ回ります。ドラッグで回転 / ピンチでズーム / もう一度タップで再セット。</p>
-  </div>
   <div id="state">READY</div>
   <div id="weather">🛰 天気取得中…</div>
   <div id="hint">▼ 赤いボタンをタップ！</div>
@@ -112,7 +107,7 @@
 
   <div id="tools">
     <button class="btn" id="alarmBtn">⏰ アラーム</button>
-    <button class="btn" id="weatherBtn">🌤 天気更新</button>
+    <button class="btn" id="weatherBtn">🌤 天気きりかえ</button>
   </div>
   <div id="alarmPanel">
     <div style="font-weight:700">⏰ アラーム設定</div>
@@ -394,20 +389,62 @@
 
   const TIED_POS = new THREE.Vector3(0, 4.2, 0);
   const balloonState = {
-    mode: 'tied', air: 1,
+    mode: 'tied', air: 1, timer: 0,
     vel: new THREE.Vector3(),
     thrustDir: new THREE.Vector3(0, -1, 0),
     omega: new THREE.Vector3(),            // angular velocity that swings the thrust around
   };
   function resetBalloon() {
-    balloonState.mode = 'tied'; balloonState.air = 1;
+    balloonState.mode = 'tied'; balloonState.air = 1; balloonState.timer = 0;
     balloonState.vel.set(0, 0, 0); balloonState.thrustDir.set(0, -1, 0);
     balloonState.omega.set(0, 0, 0);
+    balloon.visible = true;
     balloon.position.copy(TIED_POS);
     balloon.quaternion.identity();
     balloon.scale.setScalar(1);
     balloonMat.opacity = 1; balloonMat.transparent = false;
+    cat.visible = false; cat.scale.setScalar(0.001);
   }
+
+  // ───────────────────────────────────────────────────────────
+  //  Tama the cat 🐱 — pops out when the balloon finally bursts
+  // ───────────────────────────────────────────────────────────
+  const cat = new THREE.Group();
+  const furMat  = new THREE.MeshStandardMaterial({ color: '#f2efe9', roughness: 0.9 });
+  const patchMat= new THREE.MeshStandardMaterial({ color: '#f4a23b', roughness: 0.9 });
+  const darkMat = new THREE.MeshStandardMaterial({ color: '#1c1c22', roughness: 0.7 });
+  const pinkMat = new THREE.MeshStandardMaterial({ color: '#ff9bb0', roughness: 0.6 });
+  const bodyC = new THREE.Mesh(new THREE.SphereGeometry(0.95, 32, 24), furMat);
+  bodyC.scale.set(1, 0.82, 1.12); bodyC.position.y = 0.85; bodyC.castShadow = true; cat.add(bodyC);
+  const patch = new THREE.Mesh(new THREE.SphereGeometry(0.5, 20, 16), patchMat);
+  patch.scale.set(1, 0.8, 0.7); patch.position.set(0.45, 1.0, 0.5); cat.add(patch);
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.66, 32, 24), furMat);
+  head.position.set(0, 1.72, 0.32); head.castShadow = true; cat.add(head);
+  const earGeo = new THREE.ConeGeometry(0.27, 0.42, 4);
+  const earL = new THREE.Mesh(earGeo, furMat); earL.position.set(-0.34, 2.18, 0.3); earL.rotation.z = -0.2; cat.add(earL);
+  const earR = new THREE.Mesh(earGeo, patchMat); earR.position.set(0.34, 2.18, 0.3); earR.rotation.z = 0.2; cat.add(earR);
+  const eyeGeo = new THREE.SphereGeometry(0.085, 12, 12);
+  const eyeL = new THREE.Mesh(eyeGeo, darkMat); eyeL.position.set(-0.22, 1.78, 0.92); cat.add(eyeL);
+  const eyeR = new THREE.Mesh(eyeGeo, darkMat); eyeR.position.set(0.22, 1.78, 0.92); cat.add(eyeR);
+  const nose = new THREE.Mesh(new THREE.SphereGeometry(0.07, 10, 10), pinkMat); nose.position.set(0, 1.64, 0.98); cat.add(nose);
+  const tail = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.14, 1.3, 12), patchMat);
+  tail.position.set(-0.75, 0.95, -0.55); tail.rotation.set(0.5, 0, 0.9); cat.add(tail);
+  for (let i = 0; i < 4; i++) {
+    const paw = new THREE.Mesh(new THREE.SphereGeometry(0.26, 16, 12), furMat);
+    paw.scale.set(1, 0.6, 1.2);
+    paw.position.set(i < 2 ? -0.4 : 0.4, 0.18, i % 2 ? 0.45 : -0.45);
+    paw.castShadow = true; cat.add(paw);
+  }
+  // whiskers
+  const wMat = new THREE.LineBasicMaterial({ color: '#cfd6de', transparent: true, opacity: 0.8 });
+  [[-1,0.06],[-1,-0.04],[1,0.06],[1,-0.04]].forEach(([s, dy]) => {
+    const g = new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(s * 0.12, 1.64, 0.95), new THREE.Vector3(s * 0.7, 1.64 + dy, 0.8)]);
+    cat.add(new THREE.Line(g, wMat));
+  });
+  cat.visible = false; cat.scale.setScalar(0.001);
+  scene.add(cat);
+
   resetBalloon();
 
   const stringMat = new THREE.LineBasicMaterial({ color: '#9fb6cf', transparent: true, opacity: 0.6 });
@@ -561,35 +598,17 @@
 
     const icon = { clear: isDay?'☀️':'🌙', cloudy: isDay?'⛅':'☁️', overcast:'☁️',
                    fog:'🌫️', rain:'🌧️', snow:'❄️', thunder:'⛈️' }[cat] || '🌤️';
-    weatherEl.textContent = `${icon} ${JP[cat]||''}` +
-      (temp != null ? `  ${Math.round(temp)}°C` : '') + (place ? `  ${place}` : '');
+    weatherEl.textContent = `${icon} ${JP[cat]||''}${isDay ? '' : '・夜'}　タップで切替`;
   }
-  function catOf(code) {
-    if (code === 0 || code === 1) return 'clear';
-    if (code === 2) return 'cloudy';
-    if (code === 3) return 'overcast';
-    if (code === 45 || code === 48) return 'fog';
-    if (code >= 71 && code <= 77) return 'snow';
-    if (code >= 85 && code <= 86) return 'snow';
-    if (code >= 95) return 'thunder';
-    if ((code >= 51 && code <= 67) || (code >= 80 && code <= 82)) return 'rain';
-    return 'cloudy';
-  }
-  function fetchWeather() {
-    weatherEl.textContent = '🛰 天気取得中…';
-    const fallback = (msg) => { const h = new Date().getHours();
-      applyWeather('clear', h >= 6 && h < 18, null, (msg || '') + '（タップで再取得）'); };
-    if (!navigator.geolocation) return fallback('位置情報非対応');
-    navigator.geolocation.getCurrentPosition((pos) => {
-      const la = pos.coords.latitude, lo = pos.coords.longitude;
-      fetch(`https://api.open-meteo.com/v1/forecast?latitude=${la}&longitude=${lo}&current=weather_code,temperature_2m,is_day`)
-        .then(r => r.json())
-        .then(d => { const c = d.current;
-          applyWeather(catOf(c.weather_code), c.is_day === 1, c.temperature_2m, ''); })
-        .catch(() => fallback('取得失敗'));
-    }, (err) => fallback(err && err.code === 1 ? '位置情報の許可が必要' : '位置を取得できず'),
-       { timeout: 8000, maximumAge: 600000 });
-  }
+  // Manual weather selector — tap to cycle (no location needed).
+  const WSEQ = [
+    ['clear', true], ['cloudy', true], ['overcast', true], ['fog', true],
+    ['rain', true], ['snow', true], ['thunder', false], ['clear', false],
+  ];
+  const h0 = new Date().getHours();
+  let wi = (h0 >= 6 && h0 < 18) ? 0 : 7;            // start on clear day / clear night
+  function applyW() { const [c, d] = WSEQ[wi]; applyWeather(c, d, null, ''); }
+  function cycleWeather() { wi = (wi + 1) % WSEQ.length; applyW(); }
   function updateWeather(dt, t) {
     if (clouds.visible) clouds.children.forEach((c) => {
       c.position.x += dt * c.userData.spd; if (c.position.x > 28) c.position.x = -28; });
@@ -635,6 +654,29 @@
     o.connect(g); g.connect(actx.destination); o.start(start); o.stop(start + dur);
   }
   function alarmBeep() { if (!actx) return; const t = actx.currentTime; beep(880, t, 0.18); beep(1175, t + 0.22, 0.2); }
+  function popSound() {                // balloon burst "パンッ"
+    if (!actx) return; const t = actx.currentTime;
+    const o = actx.createOscillator(); o.type = 'triangle';
+    o.frequency.setValueAtTime(190, t); o.frequency.exponentialRampToValueAtTime(40, t + 0.12);
+    const g = actx.createGain(); g.gain.setValueAtTime(0.55, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.13);
+    o.connect(g); g.connect(actx.destination); o.start(t); o.stop(t + 0.14);
+  }
+  function meow() {                    // Tama's "にゃー"
+    if (!actx) return; const t = actx.currentTime;
+    const o = actx.createOscillator(); o.type = 'sawtooth';
+    const f = actx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 1500;
+    const g = actx.createGain();
+    o.frequency.setValueAtTime(620, t);
+    o.frequency.linearRampToValueAtTime(940, t + 0.13);
+    o.frequency.linearRampToValueAtTime(500, t + 0.46);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.22, t + 0.05);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.5);
+    const lfo = actx.createOscillator(); lfo.frequency.value = 13;
+    const lg = actx.createGain(); lg.gain.value = 28;
+    lfo.connect(lg); lg.connect(o.frequency); lfo.start(t); lfo.stop(t + 0.5);
+    o.connect(f); f.connect(g); g.connect(actx.destination); o.start(t); o.stop(t + 0.5);
+  }
 
   // ───────────────────────────────────────────────────────────
   //  Alarm
@@ -659,8 +701,8 @@
   alarmOnEl.addEventListener('change', saveAlarm);
   alarmBtn.addEventListener('click', () => { unlockAudio(); alarmPanel.classList.toggle('open'); });
   alarmClose.addEventListener('click', () => alarmPanel.classList.remove('open'));
-  weatherBtn.addEventListener('click', () => { unlockAudio(); fetchWeather(); });
-  weatherEl.addEventListener('click', () => { unlockAudio(); fetchWeather(); });
+  weatherBtn.addEventListener('click', () => { unlockAudio(); cycleWeather(); });
+  weatherEl.addEventListener('click', () => { unlockAudio(); cycleWeather(); });
 
   function startAlarm() {
     if (ringEl.classList.contains('open')) return;
@@ -691,13 +733,27 @@
   setTimeout(() => { hintEl.style.opacity = '0'; }, 8000);   // auto-hide the tip
   const cv = renderer.domElement;
 
-  let downX = 0, downY = 0, moved = false;
+  // reset the camera to its default framing (recovery from any zoom/orbit)
+  function resetView() {
+    camera.position.set(0, 5, 16);
+    controls.target.set(0, 4.6, 0);
+    controls.update();
+  }
+  // block iOS Safari page pinch / double-tap zoom (so zoom never gets "stuck")
+  ['gesturestart', 'gesturechange', 'gestureend'].forEach((ev) =>
+    document.addEventListener(ev, (e) => e.preventDefault(), { passive: false }));
+  document.addEventListener('dblclick', (e) => e.preventDefault(), { passive: false });
+
+  let downX = 0, downY = 0, moved = false, lastTap = 0;
   cv.addEventListener('pointerdown', (e) => { unlockAudio(); downX = e.clientX; downY = e.clientY; moved = false; });
   cv.addEventListener('pointermove', (e) => {
     if (Math.hypot(e.clientX - downX, e.clientY - downY) > 10) moved = true;
   });
   cv.addEventListener('pointerup', (e) => {
     if (moved) return;                       // it was a drag (camera), not a tap
+    const now = performance.now();
+    if (now - lastTap < 300) { resetView(); lastTap = 0; return; }  // double-tap → reset view
+    lastTap = now;
     const r = cv.getBoundingClientRect();
     pointer.x = ((e.clientX - r.left) / r.width) * 2 - 1;
     pointer.y = -((e.clientY - r.top) / r.height) * 2 + 1;
@@ -732,6 +788,7 @@
   const _axis = new THREE.Vector3();
   const _vd = new THREE.Vector3();
   const _back = new THREE.Vector3();
+  const _tmpDir = new THREE.Vector3();
   const nozzleWorld = new THREE.Vector3();
 
   function updateBalloon(dt, t) {
@@ -807,20 +864,39 @@
         if (Math.random() < 0.85) spawnParticle(nozzleWorld, _back);
       }
 
-      if (s.air <= 0.001) s.mode = 'reinflate';   // out of air → come back & re-inflate
+      if (s.air <= 0.001) popBalloon();           // out of air → BANG! 🐱
       return;
     }
 
-    if (s.mode === 'reinflate') {
-      // float home, re-inflate, and turn the clock back to face front
-      balloon.position.lerp(TIED_POS, 0.05);
-      const ns = THREE.MathUtils.lerp(balloon.scale.x, 1, 0.07);
-      balloon.scale.setScalar(ns);
-      balloon.quaternion.slerp(_idq, 0.08);
-      s.vel.multiplyScalar(0.85);
-      if (ns > 0.99 && balloon.position.distanceTo(TIED_POS) < 0.12) resetBalloon();
+    if (s.mode === 'cat') {
+      // Tama springs out, then sits a moment before the clock re-inflates.
+      s.timer += dt;
+      const e = Math.min(1, s.timer / 0.5);
+      const pop = 1 + 2.7 * Math.pow(e - 1, 3) + 1.7 * Math.pow(e - 1, 2);   // easeOutBack
+      const idle = 1 + Math.sin(t * 3) * 0.03;
+      cat.scale.setScalar(Math.max(0.001, pop * idle));
+      cat.position.y = Math.max(0, Math.sin(Math.min(s.timer, 0.5) / 0.5 * Math.PI)) * 0.4
+                       + Math.sin(t * 3) * 0.04;
+      tail.rotation.z = 0.9 + Math.sin(t * 5) * 0.25;
+      head.rotation.z = Math.sin(t * 1.6) * 0.08;
+      if (s.timer > 3.4) resetBalloon();
       return;
     }
+  }
+
+  function popBalloon() {
+    const s = balloonState, o = balloon.position;
+    for (let i = 0; i < 64; i++) {
+      _tmpDir.set(Math.random()-0.5, Math.random()-0.5, Math.random()-0.5).normalize();
+      spawnParticle(o, _tmpDir);
+    }
+    flash = 1;                                     // quick pop flash
+    balloon.visible = false;
+    cat.position.set(THREE.MathUtils.clamp(o.x, -2.4, 2.4), 0, THREE.MathUtils.clamp(o.z, -1.2, 2.6));
+    cat.rotation.y = (Math.random() - 0.5) * 1.4;
+    cat.scale.setScalar(0.001); cat.visible = true;
+    s.mode = 'cat'; s.timer = 0;
+    popSound(); setTimeout(meow, 150);
   }
 
   // ───────────────────────────────────────────────────────────
@@ -857,8 +933,8 @@
       string.visible = false;
     }
 
-    const labels = { tied: 'READY  ●充填済み', flying: 'WHEEE!  噴射中💨', reinflate: 'ふくらみ直し中…🎈' };
-    stateEl.textContent = labels[balloonState.mode] +
+    const labels = { tied: 'READY  ●充填済み', flying: 'WHEEE!  噴射中💨', cat: 'POP!  たま登場🐱' };
+    stateEl.textContent = (labels[balloonState.mode] || '') +
       (balloonState.mode === 'flying' ? `  air:${(balloonState.air*100|0)}%` : '');
 
     controls.update();
@@ -866,7 +942,7 @@
     requestAnimationFrame(tick);
   }
   renderClock();
-  fetchWeather();          // recolor the sky to today's weather
+  applyW();                // start with day/night clear sky (tap 🌤 to change)
   tick();
 
   addEventListener('resize', () => {
