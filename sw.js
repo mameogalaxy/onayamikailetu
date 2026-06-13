@@ -1,6 +1,9 @@
-/* BalloonClock service worker — precache app shell, runtime-cache the Three.js CDN
-   so the home-screen app keeps working offline after its first online launch. */
-const CACHE = 'balloonclock-v1';
+/* BalloonClock service worker.
+   - same-origin (app shell): NETWORK-FIRST so updates always show; cache is the
+     offline fallback only. (cache-first here is what made old builds stick.)
+   - cross-origin (Three.js CDN): cache-first, so it works offline after run 1.
+   - weather API: always network, never cached. */
+const CACHE = 'balloonclock-v3';
 const CORE = [
   './',
   './index.html',
@@ -27,11 +30,22 @@ self.addEventListener('fetch', (e) => {
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
 
-  // Always hit the network for live weather — never serve it stale.
+  // live weather → straight to network, never cached
   if (url.hostname.includes('open-meteo.com')) return;
 
-  // Cache-first for everything else (app shell + Three.js CDN), filling the
-  // cache on first fetch so later launches work without a network.
+  // app shell (same origin) → network-first, fall back to cache when offline
+  if (url.origin === self.location.origin) {
+    e.respondWith(
+      fetch(req).then((resp) => {
+        const copy = resp.clone();
+        caches.open(CACHE).then((c) => c.put(req, copy)).catch(() => {});
+        return resp;
+      }).catch(() => caches.match(req).then((hit) => hit || caches.match('./index.html')))
+    );
+    return;
+  }
+
+  // third-party (Three.js CDN) → cache-first, fill on first fetch
   e.respondWith(
     caches.match(req).then((hit) => hit || fetch(req).then((resp) => {
       const copy = resp.clone();

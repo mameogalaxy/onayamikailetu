@@ -587,7 +587,8 @@
         .then(d => { const c = d.current;
           applyWeather(catOf(c.weather_code), c.is_day === 1, c.temperature_2m, ''); })
         .catch(() => fallback('取得失敗'));
-    }, () => fallback('位置情報オフ'), { timeout: 8000, maximumAge: 600000 });
+    }, (err) => fallback(err && err.code === 1 ? '位置情報の許可が必要' : '位置を取得できず'),
+       { timeout: 8000, maximumAge: 600000 });
   }
   function updateWeather(dt, t) {
     if (clouds.visible) clouds.children.forEach((c) => {
