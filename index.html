@@ -462,6 +462,14 @@
   const wingLP = new THREE.Group(); const wlm = new THREE.Mesh(wingGeo, hawkMat); wlm.position.x = -1.15; wingLP.add(wlm); wingLP.position.set(-0.15, 0.12, 0); hawk.add(wingLP);
   const wingRP = new THREE.Group(); const wrm = new THREE.Mesh(wingGeo, hawkMat); wrm.position.x = 1.15; wingRP.add(wrm); wingRP.position.set(0.15, 0.12, 0); hawk.add(wingRP);
   const htail = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.06, 0.7), hawkMat); htail.position.set(0, 0.05, -1.05); hawk.add(htail);
+  // talons that reach down to grip Tama
+  const talonMat = new THREE.MeshStandardMaterial({ color: '#33240f', roughness: 0.6 });
+  for (let i = 0; i < 2; i++) {
+    const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.05, 0.55, 6), talonMat);
+    leg.position.set(i ? 0.26 : -0.26, -0.6, 0.15); hawk.add(leg);
+    const claw = new THREE.Mesh(new THREE.SphereGeometry(0.16, 10, 8), talonMat);
+    claw.scale.set(1, 0.6, 1); claw.position.set(i ? 0.26 : -0.26, -0.92, 0.15); hawk.add(claw);
+  }
   hawk.visible = false; scene.add(hawk);
 
   const whale = new THREE.Group();
@@ -488,7 +496,7 @@
   const _catPos = new THREE.Vector3(), _hawkFrom = new THREE.Vector3();
   const _hawkGrab = new THREE.Vector3(), _hawkAway = new THREE.Vector3();
   const _whaleApex = new THREE.Vector3(), _whaleFrom = new THREE.Vector3();
-  const _whaleNear = new THREE.Vector3(0, 5, 10.5), _blowWorld = new THREE.Vector3();
+  const _whaleNear = new THREE.Vector3(0, 3.8, -4.5), _blowWorld = new THREE.Vector3();
   const _balloonFrom = new THREE.Vector3();
   const smooth = (x) => x * x * (3 - 2 * x);
   const easeOutC = (x) => 1 - Math.pow(1 - x, 3);
@@ -815,10 +823,10 @@
     if (balloonState.mode === 'tied') {
       balloonState.mode = 'flying';
       balloonState.air = 1;
-      balloonState.vel.set((Math.random()-0.5)*5, 4 + Math.random()*3, (Math.random()-0.5)*7);
+      balloonState.vel.set((Math.random()-0.5)*9, 5 + Math.random()*4, (Math.random()-0.5)*11);
       balloonState.thrustDir.set(Math.random()-0.5, Math.random()-0.5, Math.random()-0.5).normalize();
       balloonState.omega.set(Math.random()-0.5, Math.random()-0.5, Math.random()-0.5)
-                         .multiplyScalar(2.6 + Math.random()*1.6);
+                         .multiplyScalar(3.4 + Math.random()*2.4);
       deflateSound();
     } else {
       resetBalloon();
@@ -853,34 +861,34 @@
     }
 
     if (s.mode === 'flying') {
-      const burst = 0.04 + Math.random() * 0.04;            // slow, smooth deflation
+      const burst = 0.05 + Math.random() * 0.05;            // smooth but quicker deflation
       s.air = Math.max(0, s.air - burst * dt);
 
-      // Low-frequency wander of the spin axis → graceful, continuous loops
-      // (no fast per-frame randomness, so the motion stays silky).
-      s.omega.x += (Math.random() - 0.5) * 1.6 * dt;
-      s.omega.y += (Math.random() - 0.5) * 1.6 * dt;
-      s.omega.z += (Math.random() - 0.5) * 1.6 * dt;
-      if (Math.random() < dt * 0.35) {                      // rare, gentle re-aim
+      // Wander the spin axis → fast, sweeping loops. Smooth (low-frequency)
+      // updates keep it silky even at high speed.
+      s.omega.x += (Math.random() - 0.5) * 2.4 * dt;
+      s.omega.y += (Math.random() - 0.5) * 2.4 * dt;
+      s.omega.z += (Math.random() - 0.5) * 2.4 * dt;
+      if (Math.random() < dt * 0.6) {                       // re-aim → zippy direction changes
         s.omega.set(Math.random()-0.5, Math.random()-0.5, Math.random()-0.5)
-                .multiplyScalar(2.6 + Math.random() * 1.8);
+                .multiplyScalar(3.4 + Math.random() * 2.8);
       }
       let om = s.omega.length();
-      const OM_HI = 4.2, OM_LO = 1.8;
+      const OM_HI = 6.2, OM_LO = 2.6;
       if (om > OM_HI) { s.omega.multiplyScalar(OM_HI / om); om = OM_HI; }
       else if (om < OM_LO && om > 1e-4) { s.omega.multiplyScalar(OM_LO / om); om = OM_LO; }
       _axis.copy(s.omega).multiplyScalar(1 / om);
       _pq.setFromAxisAngle(_axis, om * dt);
       s.thrustDir.applyQuaternion(_pq).normalize();
 
-      // steady jet thrust (no random jitter → no buzz)
-      const power = 24 * (0.45 + 0.55 * s.air);
+      // punchy jet thrust
+      const power = 44 * (0.5 + 0.5 * s.air);
       s.vel.addScaledVector(s.thrustDir, power * dt);
-      s.vel.y -= 2.2 * dt;                                  // gentle gravity
+      s.vel.y -= 2.6 * dt;                                  // gentle gravity
 
       // Soft containment: smoothly steer back *before* hitting the walls, so it
       // curves around instead of bouncing. Keeps it on-screen and ぬるぬる.
-      const p = balloon.position, M = 1.4, K = 22;
+      const p = balloon.position, M = 1.7, K = 34;
       if (p.x >  BOUNDS.x - M)     s.vel.x -= (p.x - (BOUNDS.x - M)) * K * dt;
       if (p.x < -BOUNDS.x + M)     s.vel.x -= (p.x + (BOUNDS.x - M)) * K * dt;
       if (p.z >  BOUNDS.z - M)     s.vel.z -= (p.z - (BOUNDS.z - M)) * K * dt;
@@ -888,8 +896,8 @@
       if (p.y >  BOUNDS.y - M)     s.vel.y -= (p.y - (BOUNDS.y - M)) * K * dt;
       if (p.y <  BOUNDS.floor + M) s.vel.y += ((BOUNDS.floor + M) - p.y) * K * dt;
 
-      s.vel.multiplyScalar(0.99);                           // smooth damping
-      const sp = s.vel.length(), MAX = 16;
+      s.vel.multiplyScalar(0.992);                          // light damping
+      const sp = s.vel.length(), MAX = 24;
       if (sp > MAX) s.vel.multiplyScalar(MAX / sp);
       balloon.position.addScaledVector(s.vel, dt);
 
@@ -927,9 +935,9 @@
       head.rotation.z = Math.sin(t * 1.6) * 0.08;
       if (s.timer > 1.5) {
         _catPos.copy(cat.position);
-        _hawkFrom.set(-16, 11, -4);
-        _hawkGrab.set(_catPos.x, _catPos.y + 1.6, _catPos.z);
-        _hawkAway.set(5, 8.5, 3);
+        _hawkFrom.set(-16, 11, -3);
+        _hawkGrab.set(_catPos.x, _catPos.y + 2.1, _catPos.z);   // hover above, talons down
+        _hawkAway.set(0, 8.8, -8.5);                            // carry up & to the BACK
         hawk.position.copy(_hawkFrom); hawk.visible = true;
         s.mode = 'hawk'; s.timer = 0;
       }
@@ -937,7 +945,7 @@
     }
 
     if (s.mode === 'hawk') {
-      // Hawk swoops to Tama, grabs her, and carries her up & away.
+      // Hawk swoops to Tama, grabs her in its talons, and carries her up & back.
       s.timer += dt;
       wingLP.rotation.z =  Math.sin(t * 20) * 0.6;
       wingRP.rotation.z = -Math.sin(t * 20) * 0.6;
@@ -946,43 +954,53 @@
       } else {
         const k = smooth(Math.min(1, (s.timer - 1.2) / 1.8));
         hawk.position.lerpVectors(_hawkGrab, _hawkAway, k);
-        cat.position.set(hawk.position.x, hawk.position.y - 1.3, hawk.position.z);
-        cat.rotation.z = Math.sin(t * 8) * 0.12;
+        // Tama dangles from the talons, shrunk a little so she sits clearly below
+        cat.scale.setScalar(THREE.MathUtils.lerp(cat.scale.x, 0.6, 0.18));
+        cat.position.set(hawk.position.x, hawk.position.y - 1.55, hawk.position.z + 0.15);
+        cat.rotation.set(0.15, 0, Math.sin(t * 8) * 0.14);
       }
       hawk.rotation.y = Math.sin(t * 2) * 0.1;
-      if (s.timer > 3.0) {                       // hawk reaches the apex → whale erupts
-        _whaleApex.copy(_hawkAway);
-        whale.position.set(_whaleApex.x, -15, _whaleApex.z);
-        whale.rotation.set(0, 0, 0); jaw.rotation.x = 0.75; whale.visible = true;
+      if (s.timer > 3.0) {                       // hawk at the apex → whale erupts from the back
+        _whaleApex.set(0, 4.6, -8.5);            // whale CENTER at the top of the breach
+        whale.scale.setScalar(0.85);
+        whale.position.set(0, -16, -8.5);
+        whale.rotation.set(-Math.PI / 2, 0, 0);  // nose straight up
+        jaw.rotation.x = 0.85; whale.visible = true;
+        for (let i = 0; i < 48; i++) {           // water splash bursting from the ground
+          _tmpDir.set((Math.random()-0.5) * 1.5, 1, (Math.random()-0.5) * 1.5).normalize();
+          spawnParticle(_blowWorld.set(0, 0.4, -8.5), _tmpDir);
+        }
         s.mode = 'whale'; s.timer = 0;
       }
       return;
     }
 
     if (s.mode === 'whale') {
-      // Whale bursts up out of the ground, mouth open, and swallows them.
+      // Whale breaches vertically from the ground (fully in view) and swallows them.
       s.timer += dt;
-      if (s.timer < 0.9) {
-        whale.position.y = THREE.MathUtils.lerp(-15, _whaleApex.y + 1.2, easeOutC(s.timer / 0.9));
-        jaw.rotation.x = 0.75;
+      whale.rotation.x = -Math.PI / 2;
+      if (s.timer < 1.0) {
+        whale.position.y = THREE.MathUtils.lerp(-16, _whaleApex.y, easeOutC(s.timer / 1.0));
+        jaw.rotation.x = 0.85;
       } else {
-        hawk.visible = false; cat.visible = false;     // chomp! both vanish into the mouth
-        const k = Math.min(1, (s.timer - 0.9) / 0.9);
-        jaw.rotation.x = 0.75 * (1 - k);
-        whale.position.y = THREE.MathUtils.lerp(_whaleApex.y + 1.2, _whaleApex.y, k);
+        hawk.visible = false; cat.visible = false; cat.scale.setScalar(0.001);   // chomp!
+        const k = Math.min(1, (s.timer - 1.0) / 0.8);
+        jaw.rotation.x = 0.85 * (1 - k);
+        whale.position.y = THREE.MathUtils.lerp(_whaleApex.y, _whaleApex.y - 0.7, k);
       }
       if (s.timer > 1.8) { _whaleFrom.copy(whale.position); s.mode = 'approach'; s.timer = 0; }
       return;
     }
 
     if (s.mode === 'approach') {
-      // Whale drifts in close to the camera.
+      // Whale tips over into a swimming pose and glides toward (but not past) the camera.
       s.timer += dt;
-      const k = smooth(Math.min(1, s.timer / 1.6));
+      const k = smooth(Math.min(1, s.timer / 1.8));
       whale.position.lerpVectors(_whaleFrom, _whaleNear, k);
-      whale.rotation.x = -0.18 * k;
-      whale.position.y += Math.sin(t * 1.5) * 0.04;
-      if (s.timer > 1.6) { s.mode = 'spout'; s.timer = 0; }
+      whale.rotation.x = THREE.MathUtils.lerp(-Math.PI / 2, -0.06, k);
+      whale.rotation.y = THREE.MathUtils.lerp(0, 0.5, k);
+      whale.position.y += Math.sin(t * 1.5) * 0.05;
+      if (s.timer > 1.8) { s.mode = 'spout'; s.timer = 0; }
       return;
     }
 
