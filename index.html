@@ -72,19 +72,35 @@
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.05;
+  renderer.outputEncoding = THREE.sRGBEncoding;
   app.appendChild(renderer.domElement);
 
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color('#070a14');
-  scene.fog = new THREE.FogExp2('#070a14', 0.022);
+
+  // gradient sky + image-based lighting so the balloon has glossy reflections
+  const skyCanvas = document.createElement('canvas');
+  skyCanvas.width = 16; skyCanvas.height = 256;
+  const sctx = skyCanvas.getContext('2d');
+  const grad = sctx.createLinearGradient(0, 0, 0, 256);
+  grad.addColorStop(0.00, '#0b1f44');
+  grad.addColorStop(0.45, '#173a6b');
+  grad.addColorStop(0.75, '#0e2138');
+  grad.addColorStop(1.00, '#070d18');
+  sctx.fillStyle = grad; sctx.fillRect(0, 0, 16, 256);
+  const skyTex = new THREE.CanvasTexture(skyCanvas);
+  skyTex.mapping = THREE.EquirectangularReflectionMapping;
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  scene.environment = pmrem.fromEquirectangular(skyTex).texture;
+  scene.background = skyTex;
+  scene.fog = new THREE.FogExp2('#0a1426', 0.015);
 
   const camera = new THREE.PerspectiveCamera(58, innerWidth / innerHeight, 0.1, 200);
-  camera.position.set(0, 4.5, 14);
+  camera.position.set(0, 5, 16);
 
   const controls = new THREE.OrbitControls(camera, renderer.domElement);
   controls.enableDamping = true;
   controls.dampingFactor = 0.08;
-  controls.target.set(0, 4, 0);
+  controls.target.set(0, 4.6, 0);
   controls.minDistance = 6;
   controls.maxDistance = 30;
   controls.maxPolarAngle = Math.PI * 0.495;
@@ -132,6 +148,7 @@
   const cctx = clockCanvas.getContext('2d');
   const clockTex = new THREE.CanvasTexture(clockCanvas);
   clockTex.anisotropy = renderer.capabilities.getMaxAnisotropy();
+  clockTex.encoding = THREE.sRGBEncoding;
 
   const SEG = {
     '0':[1,1,1,1,1,1,0], '1':[0,1,1,0,0,0,0], '2':[1,1,0,1,1,0,1],
@@ -182,10 +199,17 @@
   function renderClock() {
     const ctx = cctx, W = clockCanvas.width, H = clockCanvas.height;
     ctx.clearRect(0, 0, W, H);
+    // outer body
+    ctx.fillStyle = '#040b10';
+    roundRect(ctx, 0, 0, W, H, 48); ctx.fill();
+    // glowing neon frame
+    ctx.lineWidth = 9; ctx.strokeStyle = 'rgba(43,214,255,0.9)';
+    ctx.shadowColor = 'rgba(43,214,255,0.9)'; ctx.shadowBlur = 28;
+    roundRect(ctx, 16, 16, W - 32, H - 32, 38); ctx.stroke();
+    ctx.shadowBlur = 0;
+    // inner LCD glass
     ctx.fillStyle = '#06141b';
-    roundRect(ctx, 0, 0, W, H, 40); ctx.fill();
-    ctx.strokeStyle = 'rgba(57,230,255,0.18)'; ctx.lineWidth = 4;
-    roundRect(ctx, 6, 6, W - 12, H - 12, 36); ctx.stroke();
+    roundRect(ctx, 30, 30, W - 60, H - 60, 26); ctx.fill();
 
     const now = new Date();
     const hh = String(now.getHours()).padStart(2, '0');
@@ -245,27 +269,28 @@
   // The balloon IS the digital clock: a glossy inflated body with the
   // 7-seg time screen on its belly, a nozzle, and a highlight.
   const balloon = new THREE.Group();
-  const balloonMat = new THREE.MeshStandardMaterial({
-    color: '#ff4d6d', roughness: 0.16, metalness: 0.0,
-    emissive: '#3a0010', emissiveIntensity: 0.25
+  const balloonMat = new THREE.MeshPhysicalMaterial({
+    color: '#ff3d6a', roughness: 0.22, metalness: 0.0,
+    clearcoat: 1.0, clearcoatRoughness: 0.12,
+    emissive: '#26000a', emissiveIntensity: 0.18
   });
   const R = 1.7;
-  const body = new THREE.Mesh(new THREE.SphereGeometry(R, 48, 36), balloonMat);
+  const body = new THREE.Mesh(new THREE.SphereGeometry(R, 64, 48), balloonMat);
   body.scale.set(1, 1.12, 1); body.castShadow = true;
   balloon.add(body);
 
-  // digital clock screen mounted on the balloon's belly (front, +z)
-  const bezel = new THREE.Mesh(
-    new THREE.PlaneGeometry(2.95, 1.02),
-    new THREE.MeshStandardMaterial({ color: '#06121a', roughness: 0.5, metalness: 0.3 })
-  );
-  bezel.position.set(0, 0.05, R * 0.965);
-  balloon.add(bezel);
+  // Embedded digital-clock module on the belly. Its FRONT face sits proud of
+  // the pink surface (z > R) so the pink never overlaps the display.
+  const moduleMat = new THREE.MeshStandardMaterial({ color: '#0a1a24', roughness: 0.4, metalness: 0.55 });
+  const clockModule = new THREE.Mesh(new THREE.BoxGeometry(3.1, 1.18, 0.5), moduleMat);
+  clockModule.position.set(0, 0.05, R - 0.05);   // back half embeds into the balloon
+  clockModule.castShadow = true;
+  balloon.add(clockModule);
   const screen = new THREE.Mesh(
-    new THREE.PlaneGeometry(2.7, 0.84),
-    new THREE.MeshBasicMaterial({ map: clockTex })
+    new THREE.PlaneGeometry(2.96, 1.05),
+    new THREE.MeshBasicMaterial({ map: clockTex, transparent: true })
   );
-  screen.position.set(0, 0.05, R * 0.975);
+  screen.position.set(0, 0.05, R + 0.22);        // clearly in front of the sphere
   balloon.add(screen);
 
   const nozzle = new THREE.Mesh(
@@ -382,11 +407,11 @@
   // ───────────────────────────────────────────────────────────
   //  Balloon flight physics (erratic deflating-balloon motion)
   // ───────────────────────────────────────────────────────────
-  const BOUNDS = { x: 13, y: 14, z: 13, floor: 0.6 };
+  const BOUNDS = { x: 2.3, y: 8.5, z: 2.3, floor: 2.2 };
   const _q = new THREE.Quaternion();
+  const _idq = new THREE.Quaternion();
   const _down = new THREE.Vector3(0, -1, 0);
   const nozzleWorld = new THREE.Vector3();
-  const _flat = new THREE.Vector3(0.34, 0.16, 0.34);
 
   function updateBalloon(dt, t) {
     const s = balloonState;
@@ -430,8 +455,8 @@
       if (p.y > BOUNDS.y) { p.y = BOUNDS.y; s.vel.y = -Math.abs(s.vel.y)*0.7; }
       if (p.y < BOUNDS.floor) { p.y = BOUNDS.floor; s.vel.y = Math.abs(s.vel.y)*0.6; jitter(); }
 
-      const sc = 0.32 + 0.68 * s.air;
-      balloon.scale.set(sc * (1 + Math.sin(t*40)*0.04), sc * (1 - Math.sin(t*40)*0.04), sc);
+      const sc = 0.5 + 0.5 * s.air;
+      balloon.scale.set(sc * (1 + Math.sin(t*40)*0.05), sc * (1 - Math.sin(t*40)*0.05), sc);
 
       _q.setFromUnitVectors(_down, s.thrustDir);
       balloon.quaternion.slerp(_q, 0.3);
@@ -440,19 +465,18 @@
       const n = 3 + (Math.random() * 4 | 0);
       for (let k = 0; k < n; k++) spawnParticle(nozzleWorld, s.thrustDir);
 
-      if (s.air <= 0.001) { s.mode = 'empty'; balloonMat.transparent = true; }
+      if (s.air <= 0.001) s.mode = 'reinflate';   // out of air → come back & re-inflate
       return;
     }
 
-    if (s.mode === 'empty') {
-      s.vel.y -= 9 * dt;
-      s.vel.multiplyScalar(0.96);
-      s.vel.x += Math.sin(t*8) * 1.4 * dt;
-      balloon.position.addScaledVector(s.vel, dt);
-      const p = balloon.position;
-      if (p.y < BOUNDS.floor) { p.y = BOUNDS.floor; s.vel.set(0,0,0); }
-      balloon.scale.lerp(_flat, 0.08);
-      balloonMat.opacity = THREE.MathUtils.lerp(balloonMat.opacity, 0.85, 0.05);
+    if (s.mode === 'reinflate') {
+      // float home, re-inflate, and turn the clock back to face front
+      balloon.position.lerp(TIED_POS, 0.05);
+      const ns = THREE.MathUtils.lerp(balloon.scale.x, 1, 0.07);
+      balloon.scale.setScalar(ns);
+      balloon.quaternion.slerp(_idq, 0.08);
+      s.vel.multiplyScalar(0.85);
+      if (ns > 0.99 && balloon.position.distanceTo(TIED_POS) < 0.12) resetBalloon();
       return;
     }
   }
@@ -489,7 +513,7 @@
       string.visible = false;
     }
 
-    const labels = { tied: 'READY  ●充填済み', flying: 'WHEEE!  噴射中💨', empty: 'EMPTY  ぺしゃんこ' };
+    const labels = { tied: 'READY  ●充填済み', flying: 'WHEEE!  噴射中💨', reinflate: 'ふくらみ直し中…🎈' };
     stateEl.textContent = labels[balloonState.mode] +
       (balloonState.mode === 'flying' ? `  air:${(balloonState.air*100|0)}%` : '');
 
