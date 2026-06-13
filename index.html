@@ -418,6 +418,7 @@
     balloonMat.opacity = 1; balloonMat.transparent = false;
     cat.visible = false; cat.scale.setScalar(0.001);
     hawk.visible = false; whale.visible = false; jaw.rotation.x = 0; whale.rotation.x = 0;
+    egg.visible = false; chick.visible = false; chick.scale.setScalar(0.001);
   }
 
   // ───────────────────────────────────────────────────────────
@@ -493,24 +494,82 @@
   hawk.visible = false; scene.add(hawk);
 
   const whale = new THREE.Group();
-  const whaleMat = new THREE.MeshStandardMaterial({ color: '#37566f', roughness: 0.55 });
-  const whaleBelly = new THREE.MeshStandardMaterial({ color: '#a9c2d6', roughness: 0.7 });
-  const wbody = new THREE.Mesh(new THREE.SphereGeometry(2.4, 32, 24), whaleMat);
-  wbody.scale.set(1, 1.0, 2.5); wbody.castShadow = true; whale.add(wbody);
-  const wbel = new THREE.Mesh(new THREE.SphereGeometry(2.3, 24, 18), whaleBelly);
-  wbel.scale.set(0.85, 0.6, 2.3); wbel.position.y = -0.7; whale.add(wbel);
-  const wtail = new THREE.Mesh(new THREE.BoxGeometry(3.4, 0.3, 1.0), whaleMat); wtail.position.set(0, 0.5, -6.2); whale.add(wtail);
-  const wfinL = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.2, 0.9), whaleMat); wfinL.position.set(-2.1, -0.6, 1.5); wfinL.rotation.z = 0.5; whale.add(wfinL);
-  const wfinR = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.2, 0.9), whaleMat); wfinR.position.set(2.1, -0.6, 1.5); wfinR.rotation.z = -0.5; whale.add(wfinR);
-  const weyeL = new THREE.Mesh(new THREE.SphereGeometry(0.18, 12, 12), darkMat); weyeL.position.set(-1.7, 0.4, 3.2); whale.add(weyeL);
-  const weyeR = new THREE.Mesh(new THREE.SphereGeometry(0.18, 12, 12), darkMat); weyeR.position.set(1.7, 0.4, 3.2); whale.add(weyeR);
-  const mouth = new THREE.Mesh(new THREE.SphereGeometry(1.7, 20, 16), new THREE.MeshBasicMaterial({ color: '#2a0d14' }));
-  mouth.position.set(0, -0.3, 4.3); mouth.scale.set(1, 0.7, 0.8); whale.add(mouth);
-  const jaw = new THREE.Group(); jaw.position.set(0, -0.7, 3.4);
-  const jawMesh = new THREE.Mesh(new THREE.SphereGeometry(2.0, 24, 12, 0, Math.PI * 2, Math.PI * 0.55, Math.PI * 0.45), whaleMat);
-  jawMesh.scale.set(1, 1, 1.5); jawMesh.position.set(0, 0, 1.1); jaw.add(jawMesh); whale.add(jaw);
-  const blow = new THREE.Object3D(); blow.position.set(0, 2.3, 0.8); whale.add(blow);
+  const whaleMat   = new THREE.MeshStandardMaterial({ color: '#2f4f6b', roughness: 0.55 });
+  const whaleBelly = new THREE.MeshStandardMaterial({ color: '#cfe0ea', roughness: 0.7 });
+  const mouthMat   = new THREE.MeshStandardMaterial({ color: '#7a2436', roughness: 0.85 });
+  // main body — long, tapering toward the tail
+  const wbody = new THREE.Mesh(new THREE.SphereGeometry(2.3, 40, 28), whaleMat);
+  wbody.scale.set(1.0, 1.05, 2.5); wbody.castShadow = true; whale.add(wbody);
+  const wbel = new THREE.Mesh(new THREE.SphereGeometry(2.2, 32, 22), whaleBelly);
+  wbel.scale.set(0.9, 0.62, 2.4); wbel.position.set(0, -0.7, 0.3); whale.add(wbel);
+  // tail stock + horizontal fluke (V)
+  const wstock = new THREE.Mesh(new THREE.SphereGeometry(1.0, 20, 16), whaleMat);
+  wstock.scale.set(0.7, 0.7, 1.8); wstock.position.set(0, 0.2, -5.4); whale.add(wstock);
+  const flukeGeo = new THREE.BoxGeometry(2.6, 0.16, 1.3);
+  const flukeL = new THREE.Mesh(flukeGeo, whaleMat); flukeL.position.set(-1.25, 0.25, -6.5); flukeL.rotation.set(0.1, 0.5, 0); whale.add(flukeL);
+  const flukeR = new THREE.Mesh(flukeGeo, whaleMat); flukeR.position.set(1.25, 0.25, -6.5); flukeR.rotation.set(0.1, -0.5, 0); whale.add(flukeR);
+  // pectoral fins, swept back
+  const finGeo = new THREE.BoxGeometry(0.4, 0.18, 2.2);
+  const wfinL = new THREE.Mesh(finGeo, whaleMat); wfinL.position.set(-2.2, -0.5, 0.6); wfinL.rotation.set(0, -0.5, 0.55); whale.add(wfinL);
+  const wfinR = new THREE.Mesh(finGeo, whaleMat); wfinR.position.set(2.2, -0.5, 0.6); wfinR.rotation.set(0, 0.5, -0.55); whale.add(wfinR);
+  // dorsal hump
+  const dorsal = new THREE.Mesh(new THREE.SphereGeometry(0.55, 14, 12), whaleMat);
+  dorsal.scale.set(1, 1.2, 1.7); dorsal.position.set(0, 1.9, -1.6); whale.add(dorsal);
+  // throat grooves on the belly
+  for (let i = -2; i <= 2; i++) {
+    const gr = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.05, 3.0), whaleBelly);
+    gr.position.set(i * 0.35, -1.32, 2.4); whale.add(gr);
+  }
+  // eyes
+  const weyeL = new THREE.Mesh(new THREE.SphereGeometry(0.2, 14, 14), darkMat); weyeL.position.set(-1.75, 0.2, 3.0); whale.add(weyeL);
+  const weyeR = new THREE.Mesh(new THREE.SphereGeometry(0.2, 14, 14), darkMat); weyeR.position.set(1.75, 0.2, 3.0); whale.add(weyeR);
+  // upper snout + dark mouth interior
+  const snout = new THREE.Mesh(new THREE.SphereGeometry(1.9, 28, 20), whaleMat);
+  snout.scale.set(0.95, 0.7, 1.2); snout.position.set(0, 0.35, 3.9); whale.add(snout);
+  const mouth = new THREE.Mesh(new THREE.SphereGeometry(1.5, 20, 16), mouthMat);
+  mouth.scale.set(0.95, 0.5, 0.8); mouth.position.set(0, -0.35, 4.4); whale.add(mouth);
+  // lower jaw (opens) with white underside
+  const jaw = new THREE.Group(); jaw.position.set(0, -0.55, 3.5);
+  const jawMesh = new THREE.Mesh(new THREE.SphereGeometry(1.85, 28, 16, 0, Math.PI*2, Math.PI*0.5, Math.PI*0.5), whaleMat);
+  jawMesh.scale.set(0.95, 1, 1.25); jawMesh.position.set(0, 0, 1.2); jaw.add(jawMesh);
+  const jawBelly = new THREE.Mesh(new THREE.SphereGeometry(1.7, 24, 14, 0, Math.PI*2, Math.PI*0.5, Math.PI*0.5), whaleBelly);
+  jawBelly.scale.set(0.9, 0.9, 1.2); jawBelly.position.set(0, -0.18, 1.2); jaw.add(jawBelly);
+  whale.add(jaw);
+  const blow = new THREE.Object3D(); blow.position.set(0, 2.0, 2.4); whale.add(blow);
   whale.visible = false; scene.add(whale);
+
+  // Egg + chick (alternate finale: the spout delivers an egg that hatches & grows)
+  const egg = new THREE.Group();
+  const eggMesh = new THREE.Mesh(new THREE.SphereGeometry(0.62, 28, 22),
+    new THREE.MeshStandardMaterial({ color: '#f6efda', roughness: 0.5 }));
+  eggMesh.scale.set(1, 1.32, 1); eggMesh.castShadow = true; egg.add(eggMesh);
+  const spotMat = new THREE.MeshStandardMaterial({ color: '#d9c9a3', roughness: 0.6 });
+  for (let i = 0; i < 7; i++) {
+    const sp = new THREE.Mesh(new THREE.SphereGeometry(0.1, 8, 8), spotMat);
+    const a = Math.random() * 6.28, b = Math.random() * 2 - 1, r = 0.56 * Math.sqrt(1 - b*b);
+    sp.position.set(Math.cos(a)*r, b*0.8, Math.sin(a)*r); egg.add(sp);
+  }
+  egg.visible = false; scene.add(egg);
+
+  const chick = new THREE.Group();
+  const chickMat = new THREE.MeshStandardMaterial({ color: '#ffd83b', roughness: 0.85 });
+  const cBeakMat = new THREE.MeshStandardMaterial({ color: '#ff9a2e', roughness: 0.6 });
+  const chbody = new THREE.Mesh(new THREE.SphereGeometry(0.62, 24, 18), chickMat);
+  chbody.scale.set(1, 0.92, 1); chbody.position.y = 0.55; chbody.castShadow = true; chick.add(chbody);
+  const chhead = new THREE.Mesh(new THREE.SphereGeometry(0.44, 20, 16), chickMat);
+  chhead.position.set(0, 1.26, 0.05); chick.add(chhead);
+  const chbeak = new THREE.Mesh(new THREE.ConeGeometry(0.13, 0.26, 4), cBeakMat);
+  chbeak.position.set(0, 1.24, 0.47); chbeak.rotation.x = Math.PI / 2; chick.add(chbeak);
+  const chEye = new THREE.SphereGeometry(0.07, 10, 10);
+  const chEyeL = new THREE.Mesh(chEye, darkMat); chEyeL.position.set(-0.16, 1.35, 0.37); chick.add(chEyeL);
+  const chEyeR = new THREE.Mesh(chEye, darkMat); chEyeR.position.set(0.16, 1.35, 0.37); chick.add(chEyeR);
+  const chWingGeo = new THREE.SphereGeometry(0.26, 12, 10);
+  const chWingL = new THREE.Mesh(chWingGeo, chickMat); chWingL.scale.set(0.5, 0.9, 1.1); chWingL.position.set(-0.6, 0.55, 0); chick.add(chWingL);
+  const chWingR = new THREE.Mesh(chWingGeo, chickMat); chWingR.scale.set(0.5, 0.9, 1.1); chWingR.position.set(0.6, 0.55, 0); chick.add(chWingR);
+  const chFootGeo = new THREE.BoxGeometry(0.18, 0.06, 0.28);
+  const chFootL = new THREE.Mesh(chFootGeo, cBeakMat); chFootL.position.set(-0.2, 0.02, 0.1); chick.add(chFootL);
+  const chFootR = new THREE.Mesh(chFootGeo, cBeakMat); chFootR.position.set(0.2, 0.02, 0.1); chick.add(chFootR);
+  chick.visible = false; chick.scale.setScalar(0.001); scene.add(chick);
 
   // choreography scratch
   const _catPos = new THREE.Vector3(), _hawkFrom = new THREE.Vector3();
@@ -803,6 +862,21 @@
     lfo.connect(lg); lg.connect(o.frequency); lfo.start(t); lfo.stop(t + 0.5);
     o.connect(f); f.connect(g); g.connect(actx.destination); o.start(t); o.stop(t + 0.5);
   }
+  function chirp() {                    // baby chick "ピヨピヨ"
+    if (!actx) return; const t = actx.currentTime;
+    [0, 0.16, 0.32].forEach((o, idx) => {
+      const f = actx.createOscillator(); f.type = 'sine';
+      const fr = 1500 + idx * 280;
+      f.frequency.setValueAtTime(fr, t + o);
+      f.frequency.linearRampToValueAtTime(fr + 520, t + o + 0.06);
+      f.frequency.linearRampToValueAtTime(fr, t + o + 0.12);
+      const g = actx.createGain();
+      g.gain.setValueAtTime(0.0001, t + o);
+      g.gain.exponentialRampToValueAtTime(0.18, t + o + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + o + 0.13);
+      f.connect(g); g.connect(actx.destination); f.start(t + o); f.stop(t + o + 0.14);
+    });
+  }
 
   // ───────────────────────────────────────────────────────────
   //  Alarm
@@ -1051,6 +1125,10 @@
       // Whale breaches vertically from the ground (fully in view) and swallows them.
       s.timer += dt;
       whale.rotation.x = -Math.PI / 2;
+      if (hawk.visible) {                          // keep the wings flapping until the chomp
+        wingLP.rotation.z =  Math.sin(t * 22) * 0.6;
+        wingRP.rotation.z = -Math.sin(t * 22) * 0.6;
+      }
       if (s.timer < 1.0) {
         whale.position.y = THREE.MathUtils.lerp(-16, _whaleApex.y, easeOutC(s.timer / 1.0));
         jaw.rotation.x = 0.85;
@@ -1072,33 +1150,93 @@
       whale.rotation.x = THREE.MathUtils.lerp(-Math.PI / 2, -0.06, k);
       whale.rotation.y = THREE.MathUtils.lerp(0, 0.5, k);
       whale.position.y += Math.sin(t * 1.5) * 0.05;
-      if (s.timer > 1.8) { s.mode = 'spout'; s.timer = 0; }
+      if (s.timer > 1.8) {
+        s.useEgg = Math.random() < 0.5;            // egg-hatch finale half the time
+        s.delivered = false;
+        s.mode = 'spout'; s.timer = 0;
+      }
       return;
     }
 
     if (s.mode === 'spout') {
-      // Whale blows its spout; the clock-balloon rains back down to home base.
+      // Whale blows its spout; from the top of it comes either the clock-balloon
+      // or an egg, which then arcs to home base.
       s.timer += dt;
       blow.getWorldPosition(_blowWorld);
       if (s.timer < 1.2) {
-        for (let i = 0; i < 6; i++) {
-          _tmpDir.set((Math.random()-0.5)*0.45, 1, (Math.random()-0.5)*0.45).normalize();
+        for (let i = 0; i < 7; i++) {
+          _tmpDir.set((Math.random()-0.5)*0.5, 1, (Math.random()-0.5)*0.5).normalize();
           spawnParticle(_blowWorld, _tmpDir);
         }
       }
-      if (s.timer > 0.6) {
-        if (!balloon.visible) {
-          balloon.visible = true;
-          balloon.position.set(_blowWorld.x, _blowWorld.y + 2.0, _blowWorld.z);
-          balloon.quaternion.identity(); balloon.scale.setScalar(1);
-          balloonMat.opacity = 1; balloonMat.transparent = false;
-          _balloonFrom.copy(balloon.position);
-        }
-        const k = smooth(Math.min(1, (s.timer - 0.6) / 1.7));
-        balloon.position.lerpVectors(_balloonFrom, TIED_POS, k);
-        balloon.rotation.z = Math.sin(t * 4) * 0.1 * (1 - k);
+      if (s.timer > 1.3) {                          // whale sinks away so it never overlaps
+        whale.position.y -= 7 * dt;
+        if (whale.position.y < -10) whale.visible = false;
       }
-      if (s.timer > 2.4) resetBalloon();
+      if (s.timer > 0.7) {
+        const obj = s.useEgg ? egg : balloon;
+        if (!s.delivered) {
+          s.delivered = true;
+          _balloonFrom.set(_blowWorld.x, _blowWorld.y + 3.2, _blowWorld.z);   // high above the spout
+          obj.visible = true; obj.position.copy(_balloonFrom);
+          if (s.useEgg) { egg.scale.setScalar(1); egg.rotation.set(0, 0, 0); }
+          else { balloon.quaternion.identity(); balloon.scale.setScalar(1); balloonMat.opacity = 1; balloonMat.transparent = false; }
+        }
+        const k = smooth(Math.min(1, (s.timer - 0.7) / 1.7));
+        obj.position.lerpVectors(_balloonFrom, TIED_POS, k);
+        obj.position.y += Math.sin(k * Math.PI) * 1.2;          // arc up then settle (clear depth)
+        if (s.useEgg) egg.rotation.z = Math.sin(t * 6) * 0.25 * (1 - k);
+        else balloon.rotation.z = Math.sin(t * 4) * 0.1 * (1 - k);
+      }
+      if (s.timer > 2.5) {
+        if (s.useEgg) { egg.position.copy(TIED_POS); s.mode = 'egg'; s.timer = 0; }
+        else resetBalloon();
+      }
+      return;
+    }
+
+    if (s.mode === 'egg') {
+      // Egg rests at home, wobbling more as it gets ready to hatch (3s).
+      s.timer += dt;
+      egg.position.copy(TIED_POS);
+      egg.position.y += Math.sin(t * 3) * 0.06;
+      egg.rotation.z = Math.sin(t * 9) * 0.12 * Math.min(1, s.timer / 2.2);
+      if (s.timer > 3.0) {
+        egg.visible = false;
+        burstConfetti(TIED_POS);                    // shell shards / celebration
+        flash = 0.6;
+        chick.visible = true; chick.scale.setScalar(0.001);
+        chick.position.copy(TIED_POS); chick.position.y -= 0.6;
+        popSound(); setTimeout(chirp, 120);
+        s.mode = 'chick'; s.timer = 0;
+      }
+      return;
+    }
+
+    if (s.mode === 'chick') {
+      // Chick hatches, grows, then transforms into the clock-balloon.
+      s.timer += dt;
+      if (s.timer <= 1.8) {
+        const e = Math.min(1, s.timer / 0.5);
+        const popIn = 1 + 2.7 * Math.pow(e - 1, 3) + 1.7 * Math.pow(e - 1, 2);   // easeOutBack
+        const grow = Math.min(1, s.timer / 1.8);
+        chick.scale.setScalar(Math.max(0.001, popIn * (0.6 + 0.95 * grow)));
+        chick.position.copy(TIED_POS);
+        chick.position.y += -0.6 * (1 - grow) + Math.sin(t * 4) * 0.05;
+        chick.rotation.z = Math.sin(t * 6) * 0.08;
+        chWingL.rotation.z =  Math.sin(t * 12) * 0.3;     // flappy little wings
+        chWingR.rotation.z = -Math.sin(t * 12) * 0.3;
+      } else {
+        const m = Math.min(1, (s.timer - 1.8) / 0.9);     // morph chick → balloon
+        chick.scale.setScalar(Math.max(0.001, 1.55 * (1 - m)));
+        if (!balloon.visible) {
+          balloon.visible = true; balloon.position.copy(TIED_POS);
+          balloon.quaternion.identity(); balloonMat.opacity = 1; balloonMat.transparent = false;
+        }
+        balloon.scale.setScalar(m);
+        balloon.position.copy(TIED_POS);
+        if (m >= 1) resetBalloon();
+      }
       return;
     }
   }
@@ -1167,7 +1305,8 @@
     }
 
     const labels = { tied: 'READY  ●充填済み', flying: 'WHEEE!  噴射中💨', cat: 'POP!  たま登場🐱',
-      hawk: 'タカが連れ去る🦅', whale: 'クジラ出現🐋', approach: 'クジラ接近…🐋', spout: '潮吹き→風船帰還⛲' };
+      hawk: 'タカが連れ去る🦅', whale: 'クジラ出現🐋', approach: 'クジラ接近…🐋', spout: '潮吹き⛲',
+      egg: 'たまご…🥚', chick: 'ヒヨコ誕生🐤→風船' };
     stateEl.textContent = (labels[balloonState.mode] || '') +
       (balloonState.mode === 'flying' ? `  air:${(balloonState.air*100|0)}%` : '');
 

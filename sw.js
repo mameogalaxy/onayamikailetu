@@ -3,7 +3,7 @@
      offline fallback only. (cache-first here is what made old builds stick.)
    - cross-origin (Three.js CDN): cache-first, so it works offline after run 1.
    - weather API: always network, never cached. */
-const CACHE = 'balloonclock-v7';
+const CACHE = 'balloonclock-v8';
 const CORE = [
   './',
   './index.html',
