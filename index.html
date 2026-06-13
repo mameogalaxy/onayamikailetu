@@ -113,6 +113,7 @@
   <div id="tools">
     <button class="btn" id="alarmBtn">⏰ アラーム</button>
     <button class="btn" id="weatherBtn">🌤 天気きりかえ</button>
+    <button class="btn" id="musicBtn">🎵 BGM</button>
   </div>
   <div id="alarmPanel">
     <div style="font-weight:700">⏰ アラーム設定</div>
@@ -228,10 +229,38 @@
   floor.receiveShadow = true;
   scene.add(floor);
 
-  const grid = new THREE.GridHelper(60, 60, '#22406b', '#15233d');
-  grid.material.transparent = true;
-  grid.material.opacity = 0.5;
-  scene.add(grid);
+  // Dynamic voxel floor: a field of square tiles that constantly rise and fall,
+  // with the occasional tall thin "vine" spike. InstancedMesh keeps it cheap.
+  const GN = 18, TILE = 1.7;
+  const tileGeo = new THREE.BoxGeometry(TILE * 0.84, 1, TILE * 0.84);
+  const tileMat = new THREE.MeshStandardMaterial({ roughness: 0.85, metalness: 0.06 });
+  const tiles = new THREE.InstancedMesh(tileGeo, tileMat, GN * GN);
+  tiles.receiveShadow = true; tiles.castShadow = false;
+  tiles.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(GN * GN * 3), 3);
+  scene.add(tiles);
+  const tX = new Float32Array(GN * GN), tZ = new Float32Array(GN * GN);
+  const tPh = new Float32Array(GN * GN), tSpk = new Float32Array(GN * GN);
+  { let i = 0; for (let gx = 0; gx < GN; gx++) for (let gz = 0; gz < GN; gz++) {
+    tX[i] = (gx - (GN - 1) / 2) * TILE; tZ[i] = (gz - (GN - 1) / 2) * TILE;
+    tPh[i] = Math.random() * 6.283; i++; } }
+  const _tileObj = new THREE.Object3D(), _tileCol = new THREE.Color();
+  function updateFloor(dt, t) {
+    if (Math.random() < dt * 1.6) tSpk[(Math.random() * GN * GN) | 0] = 1.6;   // launch a vine
+    for (let i = 0; i < GN * GN; i++) {
+      let h = 0.25 + (Math.sin(t * 1.2 + tPh[i]) * 0.5 + 0.5) * 0.7
+                   + (Math.sin(t * 0.8 + tX[i] * 0.45 + tZ[i] * 0.38) * 0.5 + 0.5) * 0.6;
+      let sx = 1;
+      if (tSpk[i] > 0) { tSpk[i] = Math.max(0, tSpk[i] - dt);
+        const b = Math.sin(Math.min(1, tSpk[i] / 1.6) * Math.PI); h += b * 6.0; sx = 1 - b * 0.55; }
+      _tileObj.position.set(tX[i], h / 2, tZ[i]);
+      _tileObj.scale.set(sx, h, sx); _tileObj.updateMatrix();
+      tiles.setMatrixAt(i, _tileObj.matrix);
+      _tileCol.setHSL(0.56 - Math.min(h, 6) * 0.012, 0.55, 0.16 + Math.min(h, 3) * 0.12);
+      tiles.setColorAt(i, _tileCol);
+    }
+    tiles.instanceMatrix.needsUpdate = true;
+    if (tiles.instanceColor) tiles.instanceColor.needsUpdate = true;
+  }
 
   // ───────────────────────────────────────────────────────────
   //  Digital clock panel (7-segment on a canvas texture)
@@ -520,9 +549,18 @@
     const gr = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.05, 3.0), whaleBelly);
     gr.position.set(i * 0.35, -1.32, 2.4); whale.add(gr);
   }
-  // eyes
-  const weyeL = new THREE.Mesh(new THREE.SphereGeometry(0.2, 14, 14), darkMat); weyeL.position.set(-1.75, 0.2, 3.0); whale.add(weyeL);
-  const weyeR = new THREE.Mesh(new THREE.SphereGeometry(0.2, 14, 14), darkMat); weyeR.position.set(1.75, 0.2, 3.0); whale.add(weyeR);
+  // eyes (white sclera + pupil + highlight, angled outward so they read)
+  const scleraMat = new THREE.MeshStandardMaterial({ color: '#f4f7fb', roughness: 0.4 });
+  function whaleEye(sx) {
+    const g = new THREE.Group();
+    g.add(new THREE.Mesh(new THREE.SphereGeometry(0.32, 18, 18), scleraMat));
+    const pupil = new THREE.Mesh(new THREE.SphereGeometry(0.18, 14, 14), darkMat); pupil.position.z = 0.2; g.add(pupil);
+    const hi = new THREE.Mesh(new THREE.SphereGeometry(0.07, 8, 8), new THREE.MeshBasicMaterial({ color: '#ffffff' }));
+    hi.position.set(0.08, 0.09, 0.33); g.add(hi);
+    g.position.set(sx * 1.85, 0.55, 3.15); g.rotation.y = sx * 0.6;
+    return g;
+  }
+  whale.add(whaleEye(-1), whaleEye(1));
   // upper snout + dark mouth interior
   const snout = new THREE.Mesh(new THREE.SphereGeometry(1.9, 28, 20), whaleMat);
   snout.scale.set(0.95, 0.7, 1.2); snout.position.set(0, 0.35, 3.9); whale.add(snout);
@@ -818,6 +856,7 @@
   function unlockAudio() {
     if (!actx) { const AC = window.AudioContext || window.webkitAudioContext; if (AC) actx = new AC(); }
     if (actx && actx.state === 'suspended') actx.resume();
+    if (actx && musicOn) startMusic();
   }
   function deflateSound() {           // "プシューッ" — filtered noise sweeping down
     if (!actx) return;
@@ -878,6 +917,42 @@
     });
   }
 
+  // ── Generative background music (no files; gentle pad + arp + bass) ──
+  let musicOn = true, musicGain = null, musicTimer = null, mNext = 0, mBeat = 0;
+  const BPM = 90, SPB = 60 / BPM, ROOT = 48;          // C3
+  const CHORDS = [[0,4,7],[7,11,14],[9,12,16],[5,9,12]];   // C  G  Am  F
+  const PENT = [0, 2, 4, 7, 9];
+  const m2f = (m) => 440 * Math.pow(2, (m - 69) / 12);
+  function mNote(freq, start, dur, type, vol) {
+    const o = actx.createOscillator(); o.type = type; o.frequency.value = freq;
+    const g = actx.createGain();
+    g.gain.setValueAtTime(0.0001, start);
+    g.gain.exponentialRampToValueAtTime(vol, start + 0.04);
+    g.gain.exponentialRampToValueAtTime(0.0001, start + dur);
+    o.connect(g); g.connect(musicGain); o.start(start); o.stop(start + dur + 0.05);
+  }
+  function mSchedule() {
+    while (mNext < actx.currentTime + 0.25) {
+      const ch = CHORDS[Math.floor(mBeat / 4) % CHORDS.length];
+      if (mBeat % 4 === 0) ch.forEach((n) => mNote(m2f(ROOT + n), mNext, SPB * 3.6, 'triangle', 0.05));
+      mNote(m2f(ROOT - 12 + ch[0]), mNext, SPB * 0.9, 'sine', 0.06);                       // bass
+      if (Math.random() < 0.85)                                                            // melody
+        mNote(m2f(ROOT + 12 + ch[0] + PENT[(Math.random()*PENT.length)|0]), mNext, SPB * 0.8, 'sine', 0.045);
+      mNext += SPB; mBeat++;
+    }
+    musicTimer = setTimeout(mSchedule, 60);
+  }
+  function startMusic() {
+    if (!actx || musicTimer || !musicOn) return;
+    musicGain = actx.createGain(); musicGain.gain.value = 0; musicGain.connect(actx.destination);
+    musicGain.gain.linearRampToValueAtTime(0.13, actx.currentTime + 2);
+    mNext = actx.currentTime + 0.1; mBeat = 0; mSchedule();
+  }
+  function stopMusic() {
+    if (musicTimer) { clearTimeout(musicTimer); musicTimer = null; }
+    if (musicGain) { try { musicGain.gain.linearRampToValueAtTime(0, actx.currentTime + 0.4); } catch (e) {} }
+  }
+
   // ───────────────────────────────────────────────────────────
   //  Alarm
   // ───────────────────────────────────────────────────────────
@@ -903,6 +978,12 @@
   alarmClose.addEventListener('click', () => alarmPanel.classList.remove('open'));
   weatherBtn.addEventListener('click', () => { unlockAudio(); cycleWeather(); });
   weatherEl.addEventListener('click', () => { unlockAudio(); cycleWeather(); });
+  const musicBtn = document.getElementById('musicBtn');
+  musicBtn.addEventListener('click', () => {
+    musicOn = !musicOn;
+    musicBtn.style.opacity = musicOn ? '1' : '0.5';
+    if (musicOn) { unlockAudio(); } else { stopMusic(); }
+  });
 
   function startAlarm() {
     if (ringEl.classList.contains('open')) return;
@@ -1291,6 +1372,7 @@
     updateParticles(dt);
     updateConfetti(dt);
     updateSplash(dt);
+    updateFloor(dt, t);
     updateWeather(dt, t);
     if (stars.visible) stars.material.opacity = 0.6 + Math.sin(t * 3) * 0.25;
 
