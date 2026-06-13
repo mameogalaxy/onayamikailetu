@@ -404,6 +404,7 @@
     balloon.scale.setScalar(1);
     balloonMat.opacity = 1; balloonMat.transparent = false;
     cat.visible = false; cat.scale.setScalar(0.001);
+    hawk.visible = false; whale.visible = false; jaw.rotation.x = 0; whale.rotation.x = 0;
   }
 
   // ───────────────────────────────────────────────────────────
@@ -444,6 +445,53 @@
   });
   cat.visible = false; cat.scale.setScalar(0.001);
   scene.add(cat);
+
+  // ───────────────────────────────────────────────────────────
+  //  Hawk 🦅 (carries Tama off) and Whale 🐋 (erupts & swallows)
+  // ───────────────────────────────────────────────────────────
+  const hawk = new THREE.Group();
+  const hawkMat = new THREE.MeshStandardMaterial({ color: '#6b4a2b', roughness: 0.85 });
+  const beakMat = new THREE.MeshStandardMaterial({ color: '#f2c14e', roughness: 0.6 });
+  const hbody = new THREE.Mesh(new THREE.SphereGeometry(0.55, 20, 16), hawkMat);
+  hbody.scale.set(1, 0.85, 1.7); hbody.castShadow = true; hawk.add(hbody);
+  const hhead = new THREE.Mesh(new THREE.SphereGeometry(0.32, 16, 12), hawkMat);
+  hhead.position.set(0, 0.22, 0.95); hawk.add(hhead);
+  const hbeak = new THREE.Mesh(new THREE.ConeGeometry(0.11, 0.28, 8), beakMat);
+  hbeak.position.set(0, 0.14, 1.28); hbeak.rotation.x = Math.PI / 2; hawk.add(hbeak);
+  const wingGeo = new THREE.BoxGeometry(2.3, 0.08, 0.95);
+  const wingLP = new THREE.Group(); const wlm = new THREE.Mesh(wingGeo, hawkMat); wlm.position.x = -1.15; wingLP.add(wlm); wingLP.position.set(-0.15, 0.12, 0); hawk.add(wingLP);
+  const wingRP = new THREE.Group(); const wrm = new THREE.Mesh(wingGeo, hawkMat); wrm.position.x = 1.15; wingRP.add(wrm); wingRP.position.set(0.15, 0.12, 0); hawk.add(wingRP);
+  const htail = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.06, 0.7), hawkMat); htail.position.set(0, 0.05, -1.05); hawk.add(htail);
+  hawk.visible = false; scene.add(hawk);
+
+  const whale = new THREE.Group();
+  const whaleMat = new THREE.MeshStandardMaterial({ color: '#37566f', roughness: 0.55 });
+  const whaleBelly = new THREE.MeshStandardMaterial({ color: '#a9c2d6', roughness: 0.7 });
+  const wbody = new THREE.Mesh(new THREE.SphereGeometry(2.4, 32, 24), whaleMat);
+  wbody.scale.set(1, 1.0, 2.5); wbody.castShadow = true; whale.add(wbody);
+  const wbel = new THREE.Mesh(new THREE.SphereGeometry(2.3, 24, 18), whaleBelly);
+  wbel.scale.set(0.85, 0.6, 2.3); wbel.position.y = -0.7; whale.add(wbel);
+  const wtail = new THREE.Mesh(new THREE.BoxGeometry(3.4, 0.3, 1.0), whaleMat); wtail.position.set(0, 0.5, -6.2); whale.add(wtail);
+  const wfinL = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.2, 0.9), whaleMat); wfinL.position.set(-2.1, -0.6, 1.5); wfinL.rotation.z = 0.5; whale.add(wfinL);
+  const wfinR = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.2, 0.9), whaleMat); wfinR.position.set(2.1, -0.6, 1.5); wfinR.rotation.z = -0.5; whale.add(wfinR);
+  const weyeL = new THREE.Mesh(new THREE.SphereGeometry(0.18, 12, 12), darkMat); weyeL.position.set(-1.7, 0.4, 3.2); whale.add(weyeL);
+  const weyeR = new THREE.Mesh(new THREE.SphereGeometry(0.18, 12, 12), darkMat); weyeR.position.set(1.7, 0.4, 3.2); whale.add(weyeR);
+  const mouth = new THREE.Mesh(new THREE.SphereGeometry(1.7, 20, 16), new THREE.MeshBasicMaterial({ color: '#2a0d14' }));
+  mouth.position.set(0, -0.3, 4.3); mouth.scale.set(1, 0.7, 0.8); whale.add(mouth);
+  const jaw = new THREE.Group(); jaw.position.set(0, -0.7, 3.4);
+  const jawMesh = new THREE.Mesh(new THREE.SphereGeometry(2.0, 24, 12, 0, Math.PI * 2, Math.PI * 0.55, Math.PI * 0.45), whaleMat);
+  jawMesh.scale.set(1, 1, 1.5); jawMesh.position.set(0, 0, 1.1); jaw.add(jawMesh); whale.add(jaw);
+  const blow = new THREE.Object3D(); blow.position.set(0, 2.3, 0.8); whale.add(blow);
+  whale.visible = false; scene.add(whale);
+
+  // choreography scratch
+  const _catPos = new THREE.Vector3(), _hawkFrom = new THREE.Vector3();
+  const _hawkGrab = new THREE.Vector3(), _hawkAway = new THREE.Vector3();
+  const _whaleApex = new THREE.Vector3(), _whaleFrom = new THREE.Vector3();
+  const _whaleNear = new THREE.Vector3(0, 5, 10.5), _blowWorld = new THREE.Vector3();
+  const _balloonFrom = new THREE.Vector3();
+  const smooth = (x) => x * x * (3 - 2 * x);
+  const easeOutC = (x) => 1 - Math.pow(1 - x, 3);
 
   resetBalloon();
 
@@ -869,17 +917,98 @@
     }
 
     if (s.mode === 'cat') {
-      // Tama springs out, then sits a moment before the clock re-inflates.
+      // Tama springs out and sits, then a hawk swoops in.
       s.timer += dt;
       const e = Math.min(1, s.timer / 0.5);
       const pop = 1 + 2.7 * Math.pow(e - 1, 3) + 1.7 * Math.pow(e - 1, 2);   // easeOutBack
-      const idle = 1 + Math.sin(t * 3) * 0.03;
-      cat.scale.setScalar(Math.max(0.001, pop * idle));
-      cat.position.y = Math.max(0, Math.sin(Math.min(s.timer, 0.5) / 0.5 * Math.PI)) * 0.4
-                       + Math.sin(t * 3) * 0.04;
+      cat.scale.setScalar(Math.max(0.001, pop * (1 + Math.sin(t * 3) * 0.03)));
+      cat.position.y = Math.max(0, Math.sin(Math.min(s.timer, 0.5) / 0.5 * Math.PI)) * 0.4 + Math.sin(t * 3) * 0.04;
       tail.rotation.z = 0.9 + Math.sin(t * 5) * 0.25;
       head.rotation.z = Math.sin(t * 1.6) * 0.08;
-      if (s.timer > 3.4) resetBalloon();
+      if (s.timer > 1.5) {
+        _catPos.copy(cat.position);
+        _hawkFrom.set(-16, 11, -4);
+        _hawkGrab.set(_catPos.x, _catPos.y + 1.6, _catPos.z);
+        _hawkAway.set(5, 8.5, 3);
+        hawk.position.copy(_hawkFrom); hawk.visible = true;
+        s.mode = 'hawk'; s.timer = 0;
+      }
+      return;
+    }
+
+    if (s.mode === 'hawk') {
+      // Hawk swoops to Tama, grabs her, and carries her up & away.
+      s.timer += dt;
+      wingLP.rotation.z =  Math.sin(t * 20) * 0.6;
+      wingRP.rotation.z = -Math.sin(t * 20) * 0.6;
+      if (s.timer < 1.2) {
+        hawk.position.lerpVectors(_hawkFrom, _hawkGrab, smooth(s.timer / 1.2));
+      } else {
+        const k = smooth(Math.min(1, (s.timer - 1.2) / 1.8));
+        hawk.position.lerpVectors(_hawkGrab, _hawkAway, k);
+        cat.position.set(hawk.position.x, hawk.position.y - 1.3, hawk.position.z);
+        cat.rotation.z = Math.sin(t * 8) * 0.12;
+      }
+      hawk.rotation.y = Math.sin(t * 2) * 0.1;
+      if (s.timer > 3.0) {                       // hawk reaches the apex → whale erupts
+        _whaleApex.copy(_hawkAway);
+        whale.position.set(_whaleApex.x, -15, _whaleApex.z);
+        whale.rotation.set(0, 0, 0); jaw.rotation.x = 0.75; whale.visible = true;
+        s.mode = 'whale'; s.timer = 0;
+      }
+      return;
+    }
+
+    if (s.mode === 'whale') {
+      // Whale bursts up out of the ground, mouth open, and swallows them.
+      s.timer += dt;
+      if (s.timer < 0.9) {
+        whale.position.y = THREE.MathUtils.lerp(-15, _whaleApex.y + 1.2, easeOutC(s.timer / 0.9));
+        jaw.rotation.x = 0.75;
+      } else {
+        hawk.visible = false; cat.visible = false;     // chomp! both vanish into the mouth
+        const k = Math.min(1, (s.timer - 0.9) / 0.9);
+        jaw.rotation.x = 0.75 * (1 - k);
+        whale.position.y = THREE.MathUtils.lerp(_whaleApex.y + 1.2, _whaleApex.y, k);
+      }
+      if (s.timer > 1.8) { _whaleFrom.copy(whale.position); s.mode = 'approach'; s.timer = 0; }
+      return;
+    }
+
+    if (s.mode === 'approach') {
+      // Whale drifts in close to the camera.
+      s.timer += dt;
+      const k = smooth(Math.min(1, s.timer / 1.6));
+      whale.position.lerpVectors(_whaleFrom, _whaleNear, k);
+      whale.rotation.x = -0.18 * k;
+      whale.position.y += Math.sin(t * 1.5) * 0.04;
+      if (s.timer > 1.6) { s.mode = 'spout'; s.timer = 0; }
+      return;
+    }
+
+    if (s.mode === 'spout') {
+      // Whale blows its spout; the clock-balloon rains back down to home base.
+      s.timer += dt;
+      blow.getWorldPosition(_blowWorld);
+      if (s.timer < 1.2) {
+        for (let i = 0; i < 6; i++) {
+          _tmpDir.set((Math.random()-0.5)*0.45, 1, (Math.random()-0.5)*0.45).normalize();
+          spawnParticle(_blowWorld, _tmpDir);
+        }
+      }
+      if (s.timer > 0.6) {
+        if (!balloon.visible) {
+          balloon.visible = true;
+          balloon.position.set(_blowWorld.x, _blowWorld.y + 2.0, _blowWorld.z);
+          balloon.quaternion.identity(); balloon.scale.setScalar(1);
+          balloonMat.opacity = 1; balloonMat.transparent = false;
+          _balloonFrom.copy(balloon.position);
+        }
+        const k = smooth(Math.min(1, (s.timer - 0.6) / 1.7));
+        balloon.position.lerpVectors(_balloonFrom, TIED_POS, k);
+        balloon.rotation.z = Math.sin(t * 4) * 0.1 * (1 - k);
+      }
+      if (s.timer > 2.4) resetBalloon();
       return;
     }
   }
@@ -933,7 +1062,8 @@
       string.visible = false;
     }
 
-    const labels = { tied: 'READY  ●充填済み', flying: 'WHEEE!  噴射中💨', cat: 'POP!  たま登場🐱' };
+    const labels = { tied: 'READY  ●充填済み', flying: 'WHEEE!  噴射中💨', cat: 'POP!  たま登場🐱',
+      hawk: 'タカが連れ去る🦅', whale: 'クジラ出現🐋', approach: 'クジラ接近…🐋', spout: '潮吹き→風船帰還⛲' };
     stateEl.textContent = (labels[balloonState.mode] || '') +
       (balloonState.mode === 'flying' ? `  air:${(balloonState.air*100|0)}%` : '');
 
